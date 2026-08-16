@@ -1,41 +1,57 @@
 import 'dotenv/config';
+import fs from 'fs';
+import readline from 'readline';
+import { askGroq } from './lib/groq.js';
+import { planEdit } from './lib/plan.js';
+import { showDiff } from './lib/diff.js';
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const TARGET_FILE = process.argv[2];
+const INSTRUCTION = process.argv[3];
 
-if (!GROQ_API_KEY) {
-  console.error('GROQ_API_KEY belum di-set. Isi di file .env (lihat .env.example).');
+if (!TARGET_FILE || !INSTRUCTION) {
+  console.error('Pakai: node index.js <file> "<instruksi>"');
+  console.error('Contoh: node index.js sample.txt "tambahin baris penutup salam"');
   process.exit(1);
 }
 
-async function callGroq(message) {
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: message }]
-    })
-  });
+function ask(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => rl.question(question, (ans) => { rl.close(); resolve(ans); }));
+}
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error();
+async function main() {
+  // 1. READ
+  if (!fs.existsSync(TARGET_FILE)) {
+    console.error(`File tidak ditemukan: ${TARGET_FILE}`);
+    process.exit(1);
+  }
+  const currentContent = fs.readFileSync(TARGET_FILE, 'utf8');
+  console.log(`[READ] ${TARGET_FILE} (${currentContent.length} karakter)`);
+
+  // 2. PLAN
+  console.log(`[PLAN] Minta Groq rencanain perubahan...`);
+  const plan = await planEdit(askGroq, currentContent, INSTRUCTION);
+  console.log(`[PLAN] Alasan: ${plan.reasoning}`);
+
+  // 3. DIFF
+  console.log(`\n--- DIFF ---`);
+  console.log(showDiff(currentContent, plan.new_content));
+  console.log(`--- END DIFF ---\n`);
+
+  // 4. APPROVAL
+  const answer = await ask('Terapkan perubahan ini? (y/n): ');
+  if (answer.trim().toLowerCase() !== 'y') {
+    console.log('[BATAL] Tidak ada yang diubah.');
+    return;
   }
 
-  const data = await res.json();
-  return data.choices[0].message.content;
+  // 5. WRITE
+  fs.writeFileSync(TARGET_FILE, plan.new_content, 'utf8');
+  console.log(`[WRITE] ${TARGET_FILE} berhasil diupdate.`);
 }
 
-const testMessage = 'Balas dengan satu kalimat: kamu jalan dari mana?';
-
-console.log();
-try {
-  const reply = await callGroq(testMessage);
-  console.log();
-} catch (err) {
-  console.error('Gagal manggil Groq:', err.message);
+main().catch((err) => {
+  console.error('Error:', err.message);
   process.exit(1);
-}
+});
+
