@@ -77,6 +77,27 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP.
       approval y/n. Ini titik "resmi jadi agentic AI".
 - [ ] **M3** — SQLite (`node:sqlite`) masuk, cuma buat log percakapan dulu.
 
-## Status Saat Ini
-Rebuild total dari nol. Repo lama (`K-sRouter-CLI` versi Termux) ditinggal
-sebagai referensi, bukan basis kerja.
+## Status Saat Ini — CHECKPOINT (setelah M0-M3)
+
+**Terbukti jalan di Termux (bukan cuma sandbox), per tanggal checkpoint ini:**
+- M0: environment bersih, zero dependency — OK
+- M1: panggil provider Groq, respons nongol di terminal — OK
+- M2: loop read→plan→diff→approval→write nyala penuh — OK
+- M3: tiap approval (approve/tolak) tercatat ke SQLite (`node:sqlite`) — OK
+- 1 bug nyata ditemukan & fix selama proses: parsing JSON rusak kena isi file
+  multi-baris → diganti format delimiter (`===NEW_CONTENT_START/END===`).
+
+**Keterbatasan saat ini (BUKAN bug, ini scope yang belum digarap):**
+- Baru handle 1 file per instruksi, belum multi-step/multi-file dalam 1 task.
+- Baru 1 provider (Groq) aktif — cascade ke Gemini/OpenRouter/Nvidia/Mistral
+  BELUM diimplementasi. Kalau Groq limit habis, CLI berhenti total.
+- Approval masih "tanya di semua step" — belum ada pembedaan aksi sensitif
+  vs otomatis (sesuai rencana approval model, belum diimplementasi).
+- Memory layer: baru Session History (`conversations`) yang jalan. Durable
+  Memory belum ada tabel terpisah (decisions/learnings). Instructions
+  (`AGENT.md`) dan Safety/Rollback (snapshot) masih PROPOSAL, belum dibangun.
+
+**Next candidate (belum diputuskan, tunggu diskusi):** provider cascade
+(fallback antar 5 API key yang dipegang), atau memperluas loop ke multi-file.
+
+
