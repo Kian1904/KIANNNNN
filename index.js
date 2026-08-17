@@ -4,6 +4,7 @@ import readline from 'readline';
 import { askGroq } from './lib/groq.js';
 import { planEdit } from './lib/plan.js';
 import { showDiff } from './lib/diff.js';
+import { logConversation } from './lib/db.js';
 
 const TARGET_FILE = process.argv[2];
 const INSTRUCTION = process.argv[3];
@@ -40,7 +41,16 @@ async function main() {
 
   // 4. APPROVAL
   const answer = await ask('Terapkan perubahan ini? (y/n): ');
-  if (answer.trim().toLowerCase() !== 'y') {
+  const approved = answer.trim().toLowerCase() === 'y';
+
+  logConversation({
+    targetFile: TARGET_FILE,
+    instruction: INSTRUCTION,
+    reasoning: plan.reasoning,
+    approved
+  });
+
+  if (!approved) {
     console.log('[BATAL] Tidak ada yang diubah.');
     return;
   }
