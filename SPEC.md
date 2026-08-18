@@ -81,12 +81,24 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP.
       atau butuh approval). SEMUA bash command wajib approval dulu, tanpa
       allowlist di versi awal — allowlist baru dipertimbangkan nanti
       berdasarkan pola command yang kebukti aman & sering dipakai.
-- [ ] **M5** — Provider fallback (`lib/providers.js`): urutan prioritas
+- [x] **M5** — Provider fallback (`lib/providers.js`): urutan prioritas
       Groq → Gemini → OpenRouter → Nvidia → Mistral. Prompt (system+user)
       dikirim PERSIS SAMA ke provider manapun yang dipanggil — ini yang
       bikin task-lock otomatis (provider fallback gak tau ada provider
       sebelumnya, gak bisa "keluar jalur" dari task). Gemini butuh adapter
       terpisah karena API shape beda dari 4 provider lain (OpenAI-compatible).
+      Terbukti jalan di Termux: Groq gagal (model ID salah format, kurang
+      prefix vendor) → otomatis lanjut ke Gemini → task selesai. 1 bug
+      logging ditemukan & fix: alasan gagal provider gak muncul di log
+      per-percobaan (cuma nongol kalau SEMUA provider gagal) — sekarang
+      tiap kegagalan langsung tampil detailnya.
+
+**Catatan model ID provider (biar gak kejadian lagi):** Groq wajib pakai
+prefix vendor, contoh `qwen/qwen3.6-27b` bukan `qwen3.6-27b` — model tanpa
+prefix dianggap gak ketemu (404). Model gratisan/preview provider mana pun
+bisa berubah/deprecated sewaktu-waktu (sudah kejadian 2x: llama-3.3-70b,
+qwen3.6-27b) — makanya nama model disimpan di `.env` (`GROQ_MODEL`, dst),
+bukan hardcode, biar ganti gak perlu edit code.
 
 **FINDING dari testing M4 (belum jadi decision, dipertimbangkan buat M5+):**
 approval per-command (y/n) TIDAK cukup buat nyegah typosquatting npm — user
@@ -122,4 +134,5 @@ loop) dulu, baru M5 (provider fallback). Alasan urutan: Bash tool nambah
 kapabilitas paling besar dengan resiko kompleksitas paling kecil; provider
 fallback baru masuk akal setelah ada lebih banyak kemampuan yang "berharga
 dilindungi" dari downtime 1 provider.
+
 
