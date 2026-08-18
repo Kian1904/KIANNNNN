@@ -2,16 +2,16 @@ import 'dotenv/config';
 import fs from 'fs';
 import readline from 'readline';
 import { askGroq } from './lib/groq.js';
-import { planEdit } from './lib/plan.js';
+import { planStep } from './lib/plan.js';
 import { showDiff } from './lib/diff.js';
-import { logConversation } from './lib/db.js';
+import { runCommand } from './lib/bash.js';
+import { logStep } from './lib/db.js';
 
-const TARGET_FILE = process.argv[2];
-const INSTRUCTION = process.argv[3];
+const INSTRUCTION = process.argv[2];
+const MAX_LOOPS = 10;
 
-if (!TARGET_FILE || !INSTRUCTION) {
-  console.error('Pakai: node index.js <file> "<instruksi>"');
-  console.error('Contoh: node index.js sample.txt "tambahin baris penutup salam"');
+if (!INSTRUCTION) {
+  console.error('Pakai: node index.js "<instruksi task>"');
   process.exit(1);
 }
 
@@ -20,48 +20,72 @@ function ask(question) {
   return new Promise((resolve) => rl.question(question, (ans) => { rl.close(); resolve(ans); }));
 }
 
+function readFileSafe(target) {
+  if (!target || !fs.existsSync(target)) return '(file belum ada / belum ditentukan)';
+  return fs.readFileSync(target, 'utf8');
+}
+
 async function main() {
-  // 1. READ
-  if (!fs.existsSync(TARGET_FILE)) {
-    console.error(`File tidak ditemukan: ${TARGET_FILE}`);
-    process.exit(1);
+  const history = [];
+  let lastTarget = null;
+
+  for (let i = 1; i <= MAX_LOOPS; i++) {
+    console.log(`\n=== Langkah ${i}/${MAX_LOOPS} ===`);
+    const fileSnapshot = readFileSafe(lastTarget);
+    const step = await planStep(askGroq, { instruction: INSTRUCTION, fileSnapshot, history });
+    console.log(`[REASONING] ${step.reasoning}`);
+
+    if (step.action === 'done') {
+      console.log(`[SELESAI] ${step.summary}`);
+      return;
+    }
+
+    if (step.action === 'edit') {
+      const current = readFileSafe(step.target);
+      console.log(`\n--- DIFF: ${step.target} ---`);
+      console.log(showDiff(current === '(file belum ada / belum ditentukan)' ? '' : current, step.new_content));
+      console.log(`--- END DIFF ---`);
+      const answer = await ask('Terapkan? (y/n): ');
+      const approved = answer.trim().toLowerCase() === 'y';
+
+      logStep({ task: INSTRUCTION, actionType: 'edit', detail: { target: step.target }, reasoning: step.reasoning, approved });
+
+      if (!approved) {
+        console.log('[DITOLAK] Langkah dibatalkan, task dihentikan.');
+        return;
+      }
+      fs.writeFileSync(step.target, step.new_content, 'utf8');
+      console.log(`[WRITE] ${step.target} diupdate.`);
+      lastTarget = step.target;
+      history.push({ action: 'edit', target: step.target, approved: true });
+      continue;
+    }
+
+    if (step.action === 'bash') {
+      console.log(`\n[COMMAND] ${step.command}`);
+      const answer = await ask('Jalankan command ini? (y/n): ');
+      const approved = answer.trim().toLowerCase() === 'y';
+
+      if (!approved) {
+        logStep({ task: INSTRUCTION, actionType: 'bash', detail: { command: step.command }, reasoning: step.reasoning, approved: false });
+        console.log('[DITOLAK] Command dibatalkan, task dihentikan.');
+        return;
+      }
+
+      const result = await runCommand(step.command);
+      console.log(`[EXIT ${result.code}] stdout: ${result.stdout || '(kosong)'}`);
+      if (result.stderr) console.log(`[STDERR] ${result.stderr}`);
+
+      logStep({ task: INSTRUCTION, actionType: 'bash', detail: { command: step.command, ...result }, reasoning: step.reasoning, approved: true });
+      history.push({ action: 'bash', command: step.command, approved: true, result });
+      continue;
+    }
   }
-  const currentContent = fs.readFileSync(TARGET_FILE, 'utf8');
-  console.log(`[READ] ${TARGET_FILE} (${currentContent.length} karakter)`);
 
-  // 2. PLAN
-  console.log(`[PLAN] Minta Groq rencanain perubahan...`);
-  const plan = await planEdit(askGroq, currentContent, INSTRUCTION);
-  console.log(`[PLAN] Alasan: ${plan.reasoning}`);
-
-  // 3. DIFF
-  console.log(`\n--- DIFF ---`);
-  console.log(showDiff(currentContent, plan.new_content));
-  console.log(`--- END DIFF ---\n`);
-
-  // 4. APPROVAL
-  const answer = await ask('Terapkan perubahan ini? (y/n): ');
-  const approved = answer.trim().toLowerCase() === 'y';
-
-  logConversation({
-    targetFile: TARGET_FILE,
-    instruction: INSTRUCTION,
-    reasoning: plan.reasoning,
-    approved
-  });
-
-  if (!approved) {
-    console.log('[BATAL] Tidak ada yang diubah.');
-    return;
-  }
-
-  // 5. WRITE
-  fs.writeFileSync(TARGET_FILE, plan.new_content, 'utf8');
-  console.log(`[WRITE] ${TARGET_FILE} berhasil diupdate.`);
+  console.log(`\n[BERHENTI] Sampai batas ${MAX_LOOPS} langkah tanpa selesai.`);
 }
 
 main().catch((err) => {
   console.error('Error:', err.message);
   process.exit(1);
 });
-
