@@ -5,7 +5,6 @@
   "main": "./index.js",
   "dependencies": {
     "chalk": "^4.1.2",
-    "dotenv": "^16.4.5",
-    "reaact": "^0.0.1-security"
+    "dotenv": "^16.4.5"
   }
 }
