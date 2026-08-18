@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import fs from 'fs';
 import readline from 'readline';
-import { askGroq } from './lib/groq.js';
+import { askWithFallback, fallbackState } from './lib/providers.js';
 import { planStep } from './lib/plan.js';
 import { showDiff } from './lib/diff.js';
 import { runCommand } from './lib/bash.js';
@@ -32,7 +32,8 @@ async function main() {
   for (let i = 1; i <= MAX_LOOPS; i++) {
     console.log(`\n=== Langkah ${i}/${MAX_LOOPS} ===`);
     const fileSnapshot = readFileSafe(lastTarget);
-    const step = await planStep(askGroq, { instruction: INSTRUCTION, fileSnapshot, history });
+    const step = await planStep(askWithFallback, { instruction: INSTRUCTION, fileSnapshot, history });
+    console.log(`[PROVIDER] ${fallbackState.lastProvider}`);
     console.log(`[REASONING] ${step.reasoning}`);
 
     if (step.action === 'done') {
@@ -48,7 +49,7 @@ async function main() {
       const answer = await ask('Terapkan? (y/n): ');
       const approved = answer.trim().toLowerCase() === 'y';
 
-      logStep({ task: INSTRUCTION, actionType: 'edit', detail: { target: step.target }, reasoning: step.reasoning, approved });
+      logStep({ task: INSTRUCTION, actionType: 'edit', detail: { target: step.target, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved });
 
       if (!approved) {
         console.log('[DITOLAK] Langkah dibatalkan, task dihentikan.');
@@ -67,7 +68,7 @@ async function main() {
       const approved = answer.trim().toLowerCase() === 'y';
 
       if (!approved) {
-        logStep({ task: INSTRUCTION, actionType: 'bash', detail: { command: step.command }, reasoning: step.reasoning, approved: false });
+        logStep({ task: INSTRUCTION, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved: false });
         console.log('[DITOLAK] Command dibatalkan, task dihentikan.');
         return;
       }
@@ -76,7 +77,7 @@ async function main() {
       console.log(`[EXIT ${result.code}] stdout: ${result.stdout || '(kosong)'}`);
       if (result.stderr) console.log(`[STDERR] ${result.stderr}`);
 
-      logStep({ task: INSTRUCTION, actionType: 'bash', detail: { command: step.command, ...result }, reasoning: step.reasoning, approved: true });
+      logStep({ task: INSTRUCTION, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider, ...result }, reasoning: step.reasoning, approved: true });
       history.push({ action: 'bash', command: step.command, approved: true, result });
       continue;
     }
@@ -89,3 +90,4 @@ main().catch((err) => {
   console.error('Error:', err.message);
   process.exit(1);
 });
+
