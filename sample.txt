@@ -1,8 +1,0 @@
----
----
-halo, ini file testing
----
-sampai jumpa lagi
----
-baris baru telah ditambahkan
----
