@@ -69,13 +69,24 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP.
 
 ## Milestone (urut, jangan lompat)
 
-- [ ] **M0** — Repo kosong, `package.json` zero dependency, `index.js` cuma
+- [x] **M0** — Repo kosong, `package.json` zero dependency, `index.js` cuma
       print "OK". Buktiin environment Termux bersih dari masalah native module.
-- [ ] **M1** — CLI manggil 1 provider LLM gratisan, hasil nongol di terminal.
+- [x] **M1** — CLI manggil 1 provider LLM gratisan, hasil nongol di terminal.
       Belum ada loop, belum ada file ops.
-- [ ] **M2** — ReAct loop minimal: read 1 file → plan → edit 1 file →
+- [x] **M2** — ReAct loop minimal: read 1 file → plan → edit 1 file →
       approval y/n. Ini titik "resmi jadi agentic AI".
-- [ ] **M3** — SQLite (`node:sqlite`) masuk, cuma buat log percakapan dulu.
+- [x] **M3** — SQLite (`node:sqlite`) masuk, cuma buat log percakapan dulu.
+- [ ] **M4** — Tambah tool `Bash` (jalanin shell command) + loop jadi iterating
+      (bukan 1x jalan, agent bisa self-correct dalam 1 task sampai selesai
+      atau butuh approval). SEMUA bash command wajib approval dulu, tanpa
+      allowlist di versi awal — allowlist baru dipertimbangkan nanti
+      berdasarkan pola command yang kebukti aman & sering dipakai.
+- [ ] **M5** — Provider fallback (`lib/providers.js`): urutan prioritas
+      Groq → Gemini → OpenRouter → Nvidia → Mistral. Prompt (system+user)
+      dikirim PERSIS SAMA ke provider manapun yang dipanggil — ini yang
+      bikin task-lock otomatis (provider fallback gak tau ada provider
+      sebelumnya, gak bisa "keluar jalur" dari task). Gemini butuh adapter
+      terpisah karena API shape beda dari 4 provider lain (OpenAI-compatible).
 
 ## Status Saat Ini — CHECKPOINT (setelah M0-M3)
 
@@ -97,7 +108,9 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP.
   Memory belum ada tabel terpisah (decisions/learnings). Instructions
   (`AGENT.md`) dan Safety/Rollback (snapshot) masih PROPOSAL, belum dibangun.
 
-**Next candidate (belum diputuskan, tunggu diskusi):** provider cascade
-(fallback antar 5 API key yang dipegang), atau memperluas loop ke multi-file.
-
+**Next milestone (DISEPAKATI, urutan terkunci):** M4 (Bash tool + iterating
+loop) dulu, baru M5 (provider fallback). Alasan urutan: Bash tool nambah
+kapabilitas paling besar dengan resiko kompleksitas paling kecil; provider
+fallback baru masuk akal setelah ada lebih banyak kemampuan yang "berharga
+dilindungi" dari downtime 1 provider.
 
