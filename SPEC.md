@@ -76,7 +76,7 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP.
 - [x] **M2** — ReAct loop minimal: read 1 file → plan → edit 1 file →
       approval y/n. Ini titik "resmi jadi agentic AI".
 - [x] **M3** — SQLite (`node:sqlite`) masuk, cuma buat log percakapan dulu.
-- [ ] **M4** — Tambah tool `Bash` (jalanin shell command) + loop jadi iterating
+- [x] **M4** — Tambah tool `Bash` (jalanin shell command) + loop jadi iterating
       (bukan 1x jalan, agent bisa self-correct dalam 1 task sampai selesai
       atau butuh approval). SEMUA bash command wajib approval dulu, tanpa
       allowlist di versi awal — allowlist baru dipertimbangkan nanti
@@ -87,6 +87,15 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP.
       bikin task-lock otomatis (provider fallback gak tau ada provider
       sebelumnya, gak bisa "keluar jalur" dari task). Gemini butuh adapter
       terpisah karena API shape beda dari 4 provider lain (OpenAI-compatible).
+
+**FINDING dari testing M4 (belum jadi decision, dipertimbangkan buat M5+):**
+approval per-command (y/n) TIDAK cukup buat nyegah typosquatting npm — user
+uji install `reaact` (mirip `react`), npm sukses install (exit 0) padahal
+nama itu bukan yang dimaksud. npm sendiri udah netralin versi jahatnya jadi
+placeholder kosong, tapi itu keberuntungan (npm udah nangkep duluan), bukan
+karena sistem kita nyegah. Approval command sebagai teks doang gak cukup
+buat kasus kayak gini — perlu lapisan tambahan (cek nama package sebelum
+approval, atau tampilin metadata package) kalau mau lindungin dari ini.
 
 ## Status Saat Ini — CHECKPOINT (setelah M0-M3)
 
