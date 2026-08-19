@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import 'dotenv/config';
 import fs from 'fs';
 import readline from 'readline';
 import { askWithFallback, fallbackState } from './lib/providers.js';
@@ -59,6 +60,9 @@ async function runTask(instruction) {
         ? content.slice(0, 2000) + '\n[...TRUNCATED — file masih ada isinya tapi dipotong di sini]'
         : content;
       console.log(`[READ] ${step.target}`);
+      console.log(`--- ISI FILE ---`);
+      console.log(preview);
+      console.log(`--- END ---`);
       history.push({ action: 'read', target: step.target, content: preview });
       continue;
     }
