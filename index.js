@@ -5,7 +5,7 @@ import { askWithFallback, fallbackState } from './lib/providers.js';
 import { planStep } from './lib/plan.js';
 import { showDiff } from './lib/diff.js';
 import { runCommand } from './lib/bash.js';
-import { logStep, saveDecison, getRecentDecisions } from './lib/db.js';
+import { logStep, saveDecision, getRecentDecisions } from './lib/db.js';
 
 const MAX_LOOPS = 10;
 
