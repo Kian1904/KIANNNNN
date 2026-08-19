@@ -93,7 +93,19 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP.
       per-percobaan (cuma nongol kalau SEMUA provider gagal) — sekarang
       tiap kegagalan langsung tampil detailnya.
 
-**Catatan model ID provider (biar gak kejadian lagi):** Groq wajib pakai
+**FINDING dari M5 (perlu dipikirkan next chat):**
+- `conversations` table di SQLite (`~/.krouter_data/krouter.db`) nambah terus
+  tanpa batas — semua history langkah agent tersimpen mentah selamanya, gak
+  ada cleanup/pruning. Buat testing oke, tapi buat pemakaian jangka panjang
+  perlu mekanisme: (a) batasi ukuran tabel (hapus entri lama), atau (b)
+  proses distilasi (ringkas history lama jadi "lessons learned" di tabel
+  terpisah, buang transkrip mentahnya). Ini perbedaan Session History (mentah,
+  sementara) vs Durable Memory (ringkasan, permanen) dari 4-layer memory di
+  atas.
+- Cara akses history sekarang: `node -e "import('./lib/db.js').then(db =>
+  console.log(db.getRecentConversations(20)))"` atau install sqlite3 CLI via
+  `pkg install sqlite` terus `sqlite3 ~/.krouter_data/krouter.db "SELECT *
+  FROM conversations;"`. Belum ada interface yang lebih nyaman dari ini. Groq wajib pakai
 prefix vendor, contoh `qwen/qwen3.6-27b` bukan `qwen3.6-27b` — model tanpa
 prefix dianggap gak ketemu (404). Model gratisan/preview provider mana pun
 bisa berubah/deprecated sewaktu-waktu (sudah kejadian 2x: llama-3.3-70b,
@@ -129,7 +141,16 @@ approval, atau tampilin metadata package) kalau mau lindungin dari ini.
   Memory belum ada tabel terpisah (decisions/learnings). Instructions
   (`AGENT.md`) dan Safety/Rollback (snapshot) masih PROPOSAL, belum dibangun.
 
-**Next milestone (DISEPAKATI, urutan terkunci):** M4 (Bash tool + iterating
+**FINDING — database history (perlu dipertimbangkan buat next phase):**
+Tabel `conversations` di `~/.krouter_data/krouter.db` numpuk terus tanpa
+batas — gak ada mekanisme buang yang lama atau ringkas yang sudah lewat.
+Buat testing oke, tapi kalau agent jalan jangka panjang ini bakal jadi masalah.
+Cara akses sekarang: `node -e "import('./lib/db.js').then(db =>
+console.log(db.getRecentConversations(20)))"` atau install sqlite3 di Termux
+(`pkg install sqlite`) lalu `sqlite3 ~/.krouter_data/krouter.db
+"SELECT * FROM conversations;"`. Solusi jangka panjang: proses distilasi
+(History mentah → Durable Memory ringkas, sesuai 4-layer architecture di
+SPEC ini) — ini bagian dari "real build" next phase, bukan M0-M5.
 loop) dulu, baru M5 (provider fallback). Alasan urutan: Bash tool nambah
 kapabilitas paling besar dengan resiko kompleksitas paling kecil; provider
 fallback baru masuk akal setelah ada lebih banyak kemampuan yang "berharga
