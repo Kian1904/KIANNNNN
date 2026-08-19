@@ -5,7 +5,7 @@ import { askWithFallback, fallbackState } from './lib/providers.js';
 import { planStep } from './lib/plan.js';
 import { showDiff } from './lib/diff.js';
 import { runCommand } from './lib/bash.js';
-import { logStep } from './lib/db.js';
+import { logStep, saveDecison, getRecentDecisions } from './lib/db.js';
 
 const MAX_LOOPS = 10;
 
@@ -42,11 +42,12 @@ function loadAgentMd() {
 async function runTask(instruction, agentMd) {
   const history = [];
   let lastTarget = null;
+  const recentMemory = getRecentDecisions(5);
 
   for (let i = 1; i <= MAX_LOOPS; i++) {
     console.log(`\n=== Langkah ${i}/${MAX_LOOPS} ===`);
     const fileSnapshot = readFileSafe(lastTarget);
-    const step = await planStep(askWithFallback, { instruction, fileSnapshot, history, agentMd});
+    const step = await planStep(askWithFallback, { instruction, fileSnapshot, history, agentMd, recentMemory });
     console.log(`[PROVIDER] ${fallbackState.lastProvider}`);
     console.log(`[REASONING] ${step.reasoning}`);
 
@@ -81,6 +82,14 @@ async function runTask(instruction, agentMd) {
       continue;
     }
 
+   // --- REMEMBER ---
+   if (step.action === 'remember') {
+      saveDecision({ key: step.key, value: step.value, context: instruction });
+      console.log(`[REMEMBER] ${step.key}: ${step.value}`);
+      history.push({ action: 'remember', key: step.key, value: step.value });
+      continue;
+    }
+    
     // --- EDIT ---
     if (step.action === 'edit') {
       const current = readFileSafe(step.target);
