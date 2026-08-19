@@ -1,5 +1,4 @@
 import 'dotenv/config';
-import 'dotenv/config';
 import fs from 'fs';
 import readline from 'readline';
 import { askWithFallback, fallbackState } from './lib/providers.js';
@@ -31,8 +30,10 @@ function listDirSafe(target) {
     return entries.map(e => e.isDirectory() ? `${e.name}/` : e.name).join('\n');
   } catch (err) {
     return `(error baca direktori: ${err.message})`;
+  }
+}
 
-   function loadAgentMd() {
+function loadAgentMd() {
   const path = './AGENT.md';
   if (!fs.existsSync(path)) return null;
   return fs.readFileSync(path, 'utf8');
