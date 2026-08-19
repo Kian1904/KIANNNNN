@@ -131,6 +131,7 @@ async function runTask(instruction, agentMd) {
 
 async function chat() {
   console.log('K-sRouter-CLI — ketik instruksi, /exit untuk keluar.\n');
+  
   const agentMd = loadAgentMd();
   if (agentMd) console.log('[AGENT.md] Project instructions loaded.\n');
   
