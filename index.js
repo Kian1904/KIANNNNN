@@ -38,7 +38,6 @@ function loadAgentMd() {
   if (!fs.existsSync(path)) return null;
   return fs.readFileSync(path, 'utf8');
    }
-  }
 }
 
 async function runTask(instruction, agentMd) {
