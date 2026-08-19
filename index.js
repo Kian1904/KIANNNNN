@@ -31,17 +31,23 @@ function listDirSafe(target) {
     return entries.map(e => e.isDirectory() ? `${e.name}/` : e.name).join('\n');
   } catch (err) {
     return `(error baca direktori: ${err.message})`;
+
+   function loadAgentMd() {
+  const path = './AGENT.md';
+  if (!fs.existsSync(path)) return null;
+  return fs.readFileSync(path, 'utf8');
+   }
   }
 }
 
-async function runTask(instruction) {
+async function runTask(instruction, agentMd) {
   const history = [];
   let lastTarget = null;
 
   for (let i = 1; i <= MAX_LOOPS; i++) {
     console.log(`\n=== Langkah ${i}/${MAX_LOOPS} ===`);
     const fileSnapshot = readFileSafe(lastTarget);
-    const step = await planStep(askWithFallback, { instruction, fileSnapshot, history });
+    const step = await planStep(askWithFallback, { instruction, fileSnapshot, history, agentMd});
     console.log(`[PROVIDER] ${fallbackState.lastProvider}`);
     console.log(`[REASONING] ${step.reasoning}`);
 
@@ -125,7 +131,9 @@ async function runTask(instruction) {
 
 async function chat() {
   console.log('K-sRouter-CLI — ketik instruksi, /exit untuk keluar.\n');
-
+  const agentMd = loadAgentMd();
+  if (agentMd) console.log('[AGENT.md] Project instructions loaded.\n');
+  
   while (true) {
     const input = await ask('> ');
     const instruction = input.trim();
@@ -138,7 +146,7 @@ async function chat() {
       process.exit(0);
     }
 
-    await runTask(instruction);
+    await runTask(instruction, agentMd);
   }
 }
 
