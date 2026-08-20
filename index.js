@@ -216,7 +216,7 @@ async function chat() {
     }
 
     if (instruction.toLowerCase().startsWith('/rollback')) {
-      const filepath = instruction.split('')[1];
+      const filepath = instruction.split(' ')[1];
       
     if(!filepath) {
       const snaps = listSnapshots();
@@ -232,7 +232,8 @@ async function chat() {
     
     const snap = getLatestSnapshot(filepath);
     if (!snap) {
-      console.log(`[ROLLBACK] Tidak ada snapshot untuk ${filepath}.`);
+      console.log(`[ROLLBACK] LO GIMANA SIH? GAK ADA FILE NYA😠${filepath}.`);
+      continue;
     }
     
     const current = readFileSafe(filepath);
