@@ -8,6 +8,16 @@ import { runCommand } from './lib/bash.js';
 import { logStep, saveDecision, getRecentDecisions } from './lib/db.js';
 
 const MAX_LOOPS = 10;
+const sessionAllowed = new Set();
+
+const ALWAYS_ASK_PATTERNS = [
+  /\brm\b/, /\bsudo\b/, /\bchmod\b/, /\bdd\b/,
+  /\bnpm\s+uninstall\b/, /\bpkg\s+uninstall\b/, /\bkill\b/
+];
+
+function isDangerous(command) {
+  return ALWAYS_ASK_PATTERNS.some(p => p.test(command));
+}
 
 // Satu rl untuk seluruh sesi — biar gak konflik kalau dibuat ulang di tiap prompt
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -38,6 +48,49 @@ function loadAgentMd() {
   if (!fs.existsSync(path)) return null;
   return fs.readFileSync(path, 'utf8');
    }
+
+async function askApproval(label, { forceAsk = false } = {}) {
+  if (!forceAsk && sessionAllowed.has(label)) {
+    console.log(`[AUTO] ${label} diizinkan untuk sesi ini.`);
+    return { approved: true, condition: null };
+  }
+
+  if (forceAsk) {
+    console.log('[⚠️ PERINGATAN] Command destruktif — "allow for session" tidak tersedia.');
+  }
+
+  console.log('1) Allow once');
+  if (!forceAsk) console.log('2) Allow for this session');
+  console.log('3) Do not approve');
+  console.log('4) Approve with condition');
+
+  const choice = (await ask('> ')).trim();
+
+  if (choice === '1') return { approved: true, condition: null };
+
+  if (choice === '2') {
+    if (forceAsk) {
+      console.log('[Tidak tersedia untuk command destruktif.]');
+      return { approved: false, condition: null };
+    }
+    sessionAllowed.add(label);
+    console.log(`[SESSION] ${label} akan auto-approved sampai /exit.`);
+    return { approved: true, condition: null };
+  }
+
+  if (choice === '3') return { approved: false, condition: null };
+
+  if (choice === '4') {
+    const condition = await ask('Ketik kondisi: ');
+    console.log(`\nKondisi yang akan diteruskan ke agent: "${condition.trim()}"`);
+    const confirm = await ask('Lanjut? (y/n): ');
+    if (confirm.trim().toLowerCase() !== 'y') return { approved: false, condition: null };
+    return { approved: true, condition: condition.trim() };
+  }
+
+  console.log('[Input tidak valid, default: tidak diapprove]');
+  return { approved: false, condition: null };
+ }
 
 async function runTask(instruction, agentMd) {
   const history = [];
@@ -96,15 +149,15 @@ async function runTask(instruction, agentMd) {
       console.log(`\n--- DIFF: ${step.target} ---`);
       console.log(showDiff(current === '(file belum ada / belum ditentukan)' ? '' : current, step.new_content));
       console.log(`--- END DIFF ---`);
-      const answer = await ask('Terapkan? (y/n): ');
-      const approved = answer.trim().toLowerCase() === 'y';
-
-      logStep({ task: instruction, actionType: 'edit', detail: { target: step.target, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved });
-
-      if (!approved) {
-        console.log('[DITOLAK] Langkah dibatalkan, task dihentikan.');
-        return;
-      }
+      const editApproval = await askApproval('edit');
+      logStep({ task: instruction, actionType: 'edit', detail: { target: step.target, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved: editApproval.approved });
+    if (!editApproval.approved) {
+      console.log('[DITOLAK] Langkah dibatalkan, task dihentikan.');
+      return;
+    }
+    if (editApproval.condition) {
+      history.push({ action: 'user_condition', condition: editApproval.condition });        
+    }
       fs.writeFileSync(step.target, step.new_content, 'utf8');
       console.log(`[WRITE] ${step.target} diupdate.`);
       lastTarget = step.target;
@@ -115,19 +168,19 @@ async function runTask(instruction, agentMd) {
     // --- BASH ---
     if (step.action === 'bash') {
       console.log(`\n[COMMAND] ${step.command}`);
-      const answer = await ask('Jalankan command ini? (y/n): ');
-      const approved = answer.trim().toLowerCase() === 'y';
-
-      if (!approved) {
-        logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved: false });
-        console.log('[DITOLAK] Command dibatalkan, task dihentikan.');
-        return;
-      }
-
-      const result = await runCommand(step.command);
-      console.log(`[EXIT ${result.code}] stdout: ${result.stdout || '(kosong)'}`);
-      if (result.stderr) console.log(`[STDERR] ${result.stderr}`);
-
+      const dangerous = isDangerous(step.command);
+      const bashApproval = await askApproval('bash', { forceAsk: dangerous });
+    if (!bashApproval.approved) {
+      logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved: false });
+      console.log('[DITOLAK] Command dibatalkan, task dihentikan.');
+      return;
+     }
+    if (bashApproval.condition) {
+       history.push({ action: 'user_condition', condition: bashApproval.condition });
+     }
+       const result = await runCommand(step.command);
+       console.log(`[EXIT ${result.code}] stdout: ${result.stdout || '(kosong)'}`);
+    if (result.stderr) console.log(`[STDERR] ${result.stderr}`);
       logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider, ...result }, reasoning: step.reasoning, approved: true });
       history.push({ action: 'bash', command: step.command, approved: true, result });
       continue;
