@@ -245,15 +245,9 @@ async function chat() {
       fs.writeFileSync(filepath, snap.content, 'utf8');
       console.log(`[ROLLBACK] ${filepath} dikembalikan ke snapshot ${snap.created_at}.`);
     } else {
-      console.log(`[ROLLBACK] Dibatalkan.`);
+      console.log(`[ROLLBACK] goblok, gw batalkan.`);
     }
     continue;
-    }
-    
-    if (instruction.startWith('/'))
-    {
-      console.log(`[ERROR] Command lo salah goblok: "${instruction}. nih ye Commmands yang ada: /exit, /rollback`);
-      continue;
     }
 
     await runTask(instruction, agentMd);
