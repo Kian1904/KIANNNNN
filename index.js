@@ -237,18 +237,17 @@ async function chat() {
     
     const current = readFileSafe(filepath);
      console.log(`\n--- DIFF: ${filepath} (current → snapshot ${snap.created_at} ---`);
-     console.log(showDiff(current === (file belum ada / belum ditentukan)' ? '' : current, snap.content));
+     console.log(showDiff(current === '(file belum ada / belum ditentukan)' ? '' : current, snap.content));
      console.log(`--- END DIFF ---`);
      
     const confirm = await ask('Rollback ke snapshot ini? (y/n): ');
     if (confirm.trim().toLowerCase() === 'y') { 
       fs.writeFileSync(filepath, snap.content, 'utf8');
-     console.log(`[ROLLBACK] ${filepath} dikembalikan ke snapshot ${snap.created_at}.`);
-     else {
-       console.log(`[ROLLBACK] Dibatalkan.`);
-     }
-     continue;
+      console.log(`[ROLLBACK] ${filepath} dikembalikan ke snapshot ${snap.created_at}.`);
+    } else {
+      console.log(`[ROLLBACK] Dibatalkan.`);
     }
+    continue;
     }
     
     if (instruction.startWith('/'))
