@@ -5,7 +5,7 @@ import { askWithFallback, fallbackState } from './lib/providers.js';
 import { planStep } from './lib/plan.js';
 import { showDiff } from './lib/diff.js';
 import { runCommand } from './lib/bash.js';
-import { logStep, saveDecision, getRecentDecisions } from './lib/db.js';
+import { logStep, saveDecision, getRecentDecisions, saveSnapshot, getLatestSnapshot, listSnapshots } from './lib/db.js';
 
 const MAX_LOOPS = 10;
 const sessionAllowed = new Set();
@@ -158,6 +158,13 @@ async function runTask(instruction, agentMd) {
     if (editApproval.condition) {
       history.push({ action: 'user_condition', condition: editApproval.condition });        
     }
+    
+   const existingContent = readFileSafe(step.target);
+    if (existingContent !== '(file belum ada / belum ditentukan)') {
+      saveSnapshot({ filepath: step.target, content: existingContent });
+      console.log(`[SNAPSHOTS] ${step.target} disimpan.`);
+    }
+  
       fs.writeFileSync(step.target, step.new_content, 'utf8');
       console.log(`[WRITE] ${step.target} diupdate.`);
       lastTarget = step.target;
@@ -206,6 +213,48 @@ async function chat() {
       console.log('Bye.');
       rl.close();
       process.exit(0);
+    }
+
+    if (instruction.toLowerCase().startsWith('/rollback')) {
+      const filepath = instruction.split('')[1];
+      
+    if(!filepath) {
+      const snaps = listSnapshots();
+    if(snaps.length === 0) {
+      console.log(`Belum ada snapshots tersimpan.`);
+    }
+    else {
+      console.log('File yang punya snapshot:');
+      snaps.forEach(s => console.log(` ${s.filepath} - ${s.versions} versi, terakhir: ${s.last_snapshot}`));
+    }
+    continue;
+    }
+    
+    const snap = getLatestSnapshot(filepath);
+    if (!snap) {
+      console.log(`[ROLLBACK] Tidak ada snapshot untuk ${filepath}.`);
+    }
+    
+    const current = readFileSafe(filepath);
+     console.log(`\n--- DIFF: ${filepath} (current → snapshot ${snap.created_at} ---`);
+     console.log(showDiff(current === (file belum ada / belum ditentukan)' ? '' : current, snap.content));
+     console.log(`--- END DIFF ---`);
+     
+    const confirm = await ask('Rollback ke snapshot ini? (y/n): ');
+    if (confirm.trim().toLowerCase() === 'y') { 
+      fs.writeFileSync(filepath, snap.content, 'utf8');
+     console.log(`[ROLLBACK] ${filepath} dikembalikan ke snapshot ${snap.created_at}.`);
+     else {
+       console.log(`[ROLLBACK] Dibatalkan.`);
+     }
+     continue;
+    }
+    }
+    
+    if (instruction.startWith('/'))
+    {
+      console.log(`[ERROR] Command lo salah goblok: "${instruction}. nih ye Commmands yang ada: /exit, /rollback`);
+      continue;
     }
 
     await runTask(instruction, agentMd);
