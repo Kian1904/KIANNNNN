@@ -6,7 +6,7 @@ import { planStep } from './lib/plan.js';
 import { showDiff } from './lib/diff.js';
 import { runCommand } from './lib/bash.js';
 import { logStep, saveDecision,   getRecentDecisions, saveSnapshot, getLatestSnapshot, listSnapshots } from './lib/db.js';
-import { discoverTools, callTool } from '.lib/mcp.js';
+import { discoverTools, callTool } from './lib/mcp.js';
 
 const MAX_LOOPS = 10;
 const sessionAllowed = new Set();
