@@ -215,16 +215,26 @@ async function runTask(instruction, agentMd, availableTools) {
 async function chat() {
   console.log('K-sRouter-CLI — ketik instruksi, /exit untuk keluar.\n');
   
-  const { distillIfNeeded } = await import('./lib/distill.js');
-    await distillIfNeeded(askWithFallback);
-  
-  const availableTools = await discoverTools();
-   if (availableTools.length > 0) {
-    console.log(`[MCP] ${availableTools.length} tool tersedia: ${availableTools.map(t => t.name).join(', ')}`);
-    }
-  
+  // 1. MCP discover dulu — ada timeout, jadi gak akan nge-hang diam-diam
+  let availableTools = [];
+  try {
+    availableTools = await discoverTools();
+  } catch (err) {
+    console.log(`[MCP] Gagal discover tools: ${err.message}`);
+  }
+  console.log(`[MCP] ${availableTools.length === 0 ? 'tidak ada tool tersedia.' : `${availableTools.length} tool tersedia: ${availableTools.map(t => t.name).join(', ')}`}`);
+
+  // 2. AGENT.md
   const agentMd = loadAgentMd();
   if (agentMd) console.log('[AGENT.md] Project instructions loaded.\n');
+
+  // 3. Distill paling terakhir — paling lambat (panggil LLM), jangan sampai blokir startup
+  try {
+    const { distillIfNeeded } = await import('./lib/distill.js');
+    await distillIfNeeded(askWithFallback);
+  } catch (err) {
+    console.log(`[DISTILL] Dilewati: ${err.message}`);
+  }
   
   while (true) {
     const input = await ask('> ');
