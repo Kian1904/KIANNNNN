@@ -153,9 +153,7 @@ async function runTask(instruction, agentMd, availableTools) {
     history.push({ action: 'mcp_call', tool: step.tool, result });
   } catch (err) {
     console.log(`[MCP ERROR] ${err.message}`);
-       history.push({ action: 'mcp_call
-       tool: step.tool, result: `ERROR:
-       ${err.message}` });
+       history.push({ action: 'mcp_call', tool: step.tool, result: `ERROR: ${err.message}` });
   }
   continue;
   }
