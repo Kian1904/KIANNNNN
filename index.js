@@ -5,7 +5,7 @@ import { askWithFallback, fallbackState } from './lib/providers.js';
 import { planStep } from './lib/plan.js';
 import { showDiff } from './lib/diff.js';
 import { runCommand } from './lib/bash.js';
-import { logStep, saveDecision, getRecentDecisions, saveSnapshot, getLatestSnapshot, listSnapshots } from './lib/db.js';
+import { logStep, saveDecision,   getRecentDecisions, saveSnapshot, getLatestSnapshot, listSnapshots } from './lib/db.js';
 
 const MAX_LOOPS = 10;
 const sessionAllowed = new Set();
@@ -199,6 +199,10 @@ async function runTask(instruction, agentMd) {
 
 async function chat() {
   console.log('K-sRouter-CLI — ketik instruksi, /exit untuk keluar.\n');
+  
+  const { distillIfNeeded } = await import('./lib/distill.js');
+  
+  await distillIfNeeded(askWithFallback);
   
   const agentMd = loadAgentMd();
   if (agentMd) console.log('[AGENT.md] Project instructions loaded.\n');
