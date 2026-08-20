@@ -6,6 +6,7 @@ import { planStep } from './lib/plan.js';
 import { showDiff } from './lib/diff.js';
 import { runCommand } from './lib/bash.js';
 import { logStep, saveDecision,   getRecentDecisions, saveSnapshot, getLatestSnapshot, listSnapshots } from './lib/db.js';
+import { discoverTools, callTool } from '.lib/mcp.js';
 
 const MAX_LOOPS = 10;
 const sessionAllowed = new Set();
@@ -92,7 +93,7 @@ async function askApproval(label, { forceAsk = false } = {}) {
   return { approved: false, condition: null };
  }
 
-async function runTask(instruction, agentMd) {
+async function runTask(instruction, agentMd, availableTools) {
   const history = [];
   let lastTarget = null;
   const recentMemory = getRecentDecisions(5);
@@ -100,7 +101,7 @@ async function runTask(instruction, agentMd) {
   for (let i = 1; i <= MAX_LOOPS; i++) {
     console.log(`\n=== Langkah ${i}/${MAX_LOOPS} ===`);
     const fileSnapshot = readFileSafe(lastTarget);
-    const step = await planStep(askWithFallback, { instruction, fileSnapshot, history, agentMd, recentMemory });
+    const step = await planStep(askWithFallback, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools });
     console.log(`[PROVIDER] ${fallbackState.lastProvider}`);
     console.log(`[REASONING] ${step.reasoning}`);
 
@@ -142,6 +143,22 @@ async function runTask(instruction, agentMd) {
       history.push({ action: 'remember', key: step.key, value: step.value });
       continue;
     }
+    
+    // --- MCP_CALL ---
+  if (step.action === 'mcp_call') {
+    console.log(`[MCP] Memanggil tool: ${step.tool}`);
+    try {
+    const result = await callTool(step.tool, step.toolArgs);
+    console.log(`[MCP] Hasil:\n${result.slice(0, 500)}${result.length > 500 ? '...' : ''}`);
+    history.push({ action: 'mcp_call', tool: step.tool, result });
+  } catch (err) {
+    console.log(`[MCP ERROR] ${err.message}`);
+       history.push({ action: 'mcp_call
+       tool: step.tool, result: `ERROR:
+       ${err.message}` });
+  }
+  continue;
+  }
     
     // --- EDIT ---
     if (step.action === 'edit') {
@@ -201,8 +218,12 @@ async function chat() {
   console.log('K-sRouter-CLI — ketik instruksi, /exit untuk keluar.\n');
   
   const { distillIfNeeded } = await import('./lib/distill.js');
+    await distillIfNeeded(askWithFallback);
   
-  await distillIfNeeded(askWithFallback);
+  const availableTools = await discoverTools();
+   if (availableTools.length > 0) {
+    console.log(`[MCP] ${availableTools.length} tool tersedia: ${availableTools.map(t => t.name).join(', ')}`);
+    }
   
   const agentMd = loadAgentMd();
   if (agentMd) console.log('[AGENT.md] Project instructions loaded.\n');
@@ -255,7 +276,7 @@ async function chat() {
     continue;
     }
 
-    await runTask(instruction, agentMd);
+    await runTask(instruction, agentMd, availableTools);
   }
 }
 
