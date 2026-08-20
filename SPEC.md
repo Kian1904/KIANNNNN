@@ -15,18 +15,45 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP.
   `better-sqlite3` — native module itu gagal build di Termux/ARM/Bionic libc).
   Tidak migrasi ke Postgres/Turso/cloud DB manapun kecuali ada alasan teknis
   baru yang konkret.
-- **Approval model:** Default otonom. Approval WAJIB cuma buat aksi sensitif
-  (delete, overwrite di luar scope, shell destruktif, apapun yang nyentuh
-  credentials). Semua aksi (approved maupun auto) tercatat di log, sebelum
-  eksekusi jalan — bukan sesudah.
-- **Memory architecture — 4 layer, jangan dicampur:**
-  1. **Instructions** (statis, ditulis manual) — belum ada file-nya, next task.
-  2. **Durable Memory** (dinamis, ditulis agent) — tabel `agent_decisions`,
-     `agent_learning`.
-  3. **Session History** (transkrip mentah, beda dari memory) — tabel
-     `conversations`.
-  4. **Safety/Rollback** (snapshot sebelum aksi destruktif) — BELUM ADA,
-     rencana: shadow git repo terpisah ala Gemini CLI checkpointing.
+
+- **Approval model:** 4-pilihan per aksi — (1) Allow once, (2) Allow for this
+  session, (3) Do not approve, (4) Approve with condition. Session allow
+  tersimpan di `Set` in-memory, reset saat `/exit`. Command yang cocok dengan
+  `ALWAYS_ASK_PATTERNS` (rm, sudo, chmod, dd, npm uninstall, kill, dll) tidak
+  bisa di-session-allow — selalu tanya tanpa kecuali. Semua aksi tercatat di
+  log sebelum eksekusi. "Approve with condition" → kondisi diketik user,
+  diinject verbatim ke history sebagai `[USER CONDITION]`, agent baca dan
+  pertimbangkan di langkah berikutnya.
+
+- **Memory architecture — 4 layer, semua IMPLEMENTED:**
+  1. **Instructions** (statis, ditulis manual) — `AGENT.md` di root project.
+     Dibaca saat startup, diinject ke system prompt tiap task. Kalau tidak ada,
+     agent jalan tanpa layer ini.
+  2. **Durable Memory** (dinamis, ditulis agent) — tabel `agent_decisions` dan
+     `agent_learning`. Agent simpan keputusan via `ACTION: remember` (masuk ke
+     `agent_decisions`). `agent_learning` diisi via proses distilasi otomatis
+     dari `conversations` lama (target M6). Dibaca tiap task sebagai context
+     lintas sesi.
+  3. **Session History** (transkrip mentah) — tabel `conversations`. Semua
+     langkah agent (edit, bash, read, list_dir, done, remember) tercatat per
+     row. Pruning otomatis target M6.
+  4. **Safety/Rollback** — SQLite snapshot isi file sebelum setiap `edit` pada
+     file yang sudah ada. User bisa `/rollback <filepath>` dari chat interface
+     untuk restore. Shadow git repo dipertimbangkan sebagai enhancement masa
+     depan, bukan priority sekarang.
+
+- **Action types yang tersedia agent:** `edit`, `bash`, `done`, `read`,
+  `list_dir`, `remember`.
+
+- **Chat interface (REPL):** `node index.js` masuk ke loop interaktif.
+  Commands: `/exit` (keluar, hapus session allow), `/rollback [filepath]`
+  (tanpa arg: list semua file yang punya snapshot; dengan arg: diff + konfirmasi
+  + restore). Input yang diawali `/` tapi bukan command yang dikenal ditolak
+  dengan error — tidak diteruskan ke agent.
+
+- **Safety/Rollback implementation:** SQLite snapshot (bukan shadow git).
+  Snapshot disimpan ke tabel `snapshots` sebelum `edit` — hanya kalau file
+  sudah ada (file baru tidak punya snapshot karena tidak ada "sebelumnya").
 
 ## Keamanan (repo public di Github)
 
@@ -34,6 +61,8 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP.
 - Pakai `.env` (via package `dotenv`, pure JS) buat semua credentials.
 - `.gitignore` WAJIB cover `.env`, file session lokal, dan config yang isinya
   data pribadi.
+- Nama model disimpan di `.env` (`GROQ_MODEL`, `GEMINI_MODEL`, dst), bukan
+  hardcode — model gratisan sering deprecated tanpa notice.
 
 ## Batasan Lingkungan (Android/Termux)
 
@@ -41,119 +70,81 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP.
   ditambah kapan saja karena cuma layer type-checking, bukan ganti runtime).
   Python/Rust/C DIHINDARI karena native compile gagal/berat di Termux.
 - Tool-calling: provider gratisan gak semua support native function-calling.
-  Pendekatan yang dipakai: minta LLM balikin JSON terstruktur di teks biasa,
-  parse manual (pola `prompt-parser.js` di repo lama, tetap valid dipakai).
+  Pendekatan: minta LLM balikin format terstruktur di teks biasa, parse manual.
 - **PENTING — Android background process killer:** Android 12+ (termasuk
-  Android 15) bisa membunuh proses Termux yang jalan di background, WALAUPUN
-  `termux-wake-lock` aktif dan battery udah di-set "Unrestricted". Ini belum
-  ada solusi bersih tanpa akses ADB/root. Konsekuensi: agent HANYA reliable
-  dipakai selagi Termux di foreground (user memantau aktif). Kalau nanti mau
-  agent jalan unattended di background, solusinya BUKAN akalin Termux lebih
-  keras — pindah eksekusi ke VPS murah, Termux jadi SSH client doang.
-- PROPOSAL terbuka (belum jadi decision): pertimbangkan Go buat versi
-  selanjutnya setelah M0-M2 kelar dengan Node.js — jangan pindah bahasa
-  sebelum ada satu milestone yang beneran jalan.
+  Android 15) bisa membunuh proses Termux di background, WALAUPUN
+  `termux-wake-lock` aktif. Agent HANYA reliable selagi Termux di foreground.
+  Kalau mau unattended: pindah eksekusi ke VPS murah, Termux jadi SSH client.
+- PROPOSAL terbuka (belum jadi decision): pertimbangkan Go untuk versi
+  selanjutnya — jangan pindah bahasa sebelum ada milestone yang beneran jalan
+  di Node.js.
 
 ## Cara Kerja Tim (Claude / Gemini / ChatGPT)
 
-- Satu AI driver per unit kerja. AI lain cuma buat audit/opini kedua, bukan
-  nulis code di file yang sama di waktu yang sama.
-- Commit ke git tiap unit kecil selesai — jangan numpuk banyak fitur dulu.
+- Satu AI driver per unit kerja. AI lain cuma buat audit/opini kedua.
+- Commit ke git tiap unit kecil selesai — jangan numpuk banyak fitur.
 - Format laporan wajib tiap selesai kerja:
-  **FACT** (berdasar code nyata) / **FINDING** (masalah ditemukan) /
-  **PROPOSAL** (usulan) / **DECISION** (sudah disetujui user) /
-  **ACTION** (perubahan yang beneran dilakukan).
+  **FACT** / **FINDING** / **PROPOSAL** / **DECISION** / **ACTION**.
 - Jangan eksekusi/ubah/hapus file tanpa DECISION eksplisit dari user.
-- Kalau state gak jelas: STOP, minta `git status` + `git log` terbaru. Jangan
-  isi kekosongan dengan asumsi.
+- Kalau state gak jelas: STOP, minta `git status` + `git log` terbaru.
 
-## Milestone (urut, jangan lompat)
+## Milestone
 
 - [x] **M0** — Repo kosong, `package.json` zero dependency, `index.js` cuma
       print "OK". Buktiin environment Termux bersih dari masalah native module.
 - [x] **M1** — CLI manggil 1 provider LLM gratisan, hasil nongol di terminal.
-      Belum ada loop, belum ada file ops.
 - [x] **M2** — ReAct loop minimal: read 1 file → plan → edit 1 file →
-      approval y/n. Ini titik "resmi jadi agentic AI".
-- [x] **M3** — SQLite (`node:sqlite`) masuk, cuma buat log percakapan dulu.
-- [x] **M4** — Tambah tool `Bash` (jalanin shell command) + loop jadi iterating
-      (bukan 1x jalan, agent bisa self-correct dalam 1 task sampai selesai
-      atau butuh approval). SEMUA bash command wajib approval dulu, tanpa
-      allowlist di versi awal — allowlist baru dipertimbangkan nanti
-      berdasarkan pola command yang kebukti aman & sering dipakai.
-- [x] **M5** — Provider fallback (`lib/providers.js`): urutan prioritas
-      Groq → Gemini → OpenRouter → Nvidia → Mistral. Prompt (system+user)
-      dikirim PERSIS SAMA ke provider manapun yang dipanggil — ini yang
-      bikin task-lock otomatis (provider fallback gak tau ada provider
-      sebelumnya, gak bisa "keluar jalur" dari task). Gemini butuh adapter
-      terpisah karena API shape beda dari 4 provider lain (OpenAI-compatible).
-      Terbukti jalan di Termux: Groq gagal (model ID salah format, kurang
-      prefix vendor) → otomatis lanjut ke Gemini → task selesai. 1 bug
-      logging ditemukan & fix: alasan gagal provider gak muncul di log
-      per-percobaan (cuma nongol kalau SEMUA provider gagal) — sekarang
-      tiap kegagalan langsung tampil detailnya.
+      approval y/n. Titik "resmi jadi agentic AI".
+- [x] **M3** — SQLite (`node:sqlite`) masuk, log percakapan ke tabel
+      `conversations`.
+- [x] **M4** — Bash tool + iterating loop (agent bisa self-correct dalam 1
+      task). Semua bash wajib approval.
+- [x] **M5** — Provider fallback: Groq → Gemini → OpenRouter → Nvidia → Mistral.
+      Gemini butuh adapter terpisah (API shape beda). Nama model di `.env`.
+- [x] **M5.5** — Chat interface (REPL loop, `/exit`, `/rollback`). Action baru:
+      `read`, `list_dir`, `remember`. AGENT.md (Layer 1). `agent_decisions` +
+      `agent_learning` tabel (Layer 2 foundation). Approval 4-pilihan +
+      session allow + `ALWAYS_ASK_PATTERNS`. SQLite snapshot + `/rollback`
+      (Layer 4).
+- [ ] **M6** — Conversations pruning + distilasi otomatis. Kalau tabel
+      `conversations` > 200 baris, LLM diminta ringkas pola dari 100 baris
+      tertua ke `agent_learning`, lalu baris itu dihapus. Jalan otomatis di
+      startup `chat()`. Buat `lib/distill.js`.
+- [ ] **M7** — MCP integration. Agent bisa call tools dari MCP server eksternal.
+      Mulai dari satu MCP server sederhana, test end-to-end.
+- [ ] **M8** — Package safety. Tampilkan metadata npm (weekly downloads, umur
+      package, publisher) sebelum approval `npm install`. Resolves FINDING
+      typosquatting.
 
-**FINDING dari M5 (perlu dipikirkan next chat):**
-- `conversations` table di SQLite (`~/.krouter_data/krouter.db`) nambah terus
-  tanpa batas — semua history langkah agent tersimpen mentah selamanya, gak
-  ada cleanup/pruning. Buat testing oke, tapi buat pemakaian jangka panjang
-  perlu mekanisme: (a) batasi ukuran tabel (hapus entri lama), atau (b)
-  proses distilasi (ringkas history lama jadi "lessons learned" di tabel
-  terpisah, buang transkrip mentahnya). Ini perbedaan Session History (mentah,
-  sementara) vs Durable Memory (ringkasan, permanen) dari 4-layer memory di
-  atas.
-- Cara akses history sekarang: `node -e "import('./lib/db.js').then(db =>
-  console.log(db.getRecentConversations(20)))"` atau install sqlite3 CLI via
-  `pkg install sqlite` terus `sqlite3 ~/.krouter_data/krouter.db "SELECT *
-  FROM conversations;"`. Belum ada interface yang lebih nyaman dari ini. Groq wajib pakai
-prefix vendor, contoh `qwen/qwen3.6-27b` bukan `qwen3.6-27b` — model tanpa
-prefix dianggap gak ketemu (404). Model gratisan/preview provider mana pun
-bisa berubah/deprecated sewaktu-waktu (sudah kejadian 2x: llama-3.3-70b,
-qwen3.6-27b) — makanya nama model disimpan di `.env` (`GROQ_MODEL`, dst),
-bukan hardcode, biar ganti gak perlu edit code.
+## FINDING Terbuka
 
-**FINDING dari testing M4 (belum jadi decision, dipertimbangkan buat M5+):**
-approval per-command (y/n) TIDAK cukup buat nyegah typosquatting npm — user
-uji install `reaact` (mirip `react`), npm sukses install (exit 0) padahal
-nama itu bukan yang dimaksud. npm sendiri udah netralin versi jahatnya jadi
-placeholder kosong, tapi itu keberuntungan (npm udah nangkep duluan), bukan
-karena sistem kita nyegah. Approval command sebagai teks doang gak cukup
-buat kasus kayak gini — perlu lapisan tambahan (cek nama package sebelum
-approval, atau tampilin metadata package) kalau mau lindungin dari ini.
+**[OPEN] Model sensitivity terhadap multi-layer context:**
+Model kecil (Qwen 27b via Groq) mudah confused kalau AGENT.md rules terlalu
+broad + context panjang dari memory + history. Mitigasi: rules AGENT.md harus
+spesifik dan scoped, hindari rule yang bisa trigger di kondisi non-relevan.
+Long-term: pertimbangkan model lebih capable sebagai primary provider
+(Nvidia Nemotron 550b via OpenRouter kandidat kuat — 550B param, A55B active).
 
-## Status Saat Ini — CHECKPOINT (setelah M0-M3)
+**[OPEN] Typosquatting npm:**
+Approval command sebagai teks tidak cukup mencegah install package salah nama.
+npm sudah neutralize sebagian kasus, tapi itu luck bukan perlindungan sistem.
+Perlu tampil metadata package sebelum approval. Target: M8.
 
-**Terbukti jalan di Termux (bukan cuma sandbox), per tanggal checkpoint ini:**
-- M0: environment bersih, zero dependency — OK
-- M1: panggil provider Groq, respons nongol di terminal — OK
-- M2: loop read→plan→diff→approval→write nyala penuh — OK
-- M3: tiap approval (approve/tolak) tercatat ke SQLite (`node:sqlite`) — OK
-- 1 bug nyata ditemukan & fix selama proses: parsing JSON rusak kena isi file
-  multi-baris → diganti format delimiter (`===NEW_CONTENT_START/END===`).
+**[OPEN] Snapshot hanya untuk file yang sudah ada:**
+File baru tidak punya snapshot (tidak ada "sebelumnya"). Kalau agent buat file
+baru lalu merusaknya, tidak bisa di-rollback. Solusi potensial: simpan snapshot
+kosong ("") untuk file baru, atau tandai file baru di history.
 
-**Keterbatasan saat ini (BUKAN bug, ini scope yang belum digarap):**
-- Baru handle 1 file per instruksi, belum multi-step/multi-file dalam 1 task.
-- Baru 1 provider (Groq) aktif — cascade ke Gemini/OpenRouter/Nvidia/Mistral
-  BELUM diimplementasi. Kalau Groq limit habis, CLI berhenti total.
-- Approval masih "tanya di semua step" — belum ada pembedaan aksi sensitif
-  vs otomatis (sesuai rencana approval model, belum diimplementasi).
-- Memory layer: baru Session History (`conversations`) yang jalan. Durable
-  Memory belum ada tabel terpisah (decisions/learnings). Instructions
-  (`AGENT.md`) dan Safety/Rollback (snapshot) masih PROPOSAL, belum dibangun.
+## FINDING Resolved
 
-**FINDING — database history (perlu dipertimbangkan buat next phase):**
-Tabel `conversations` di `~/.krouter_data/krouter.db` numpuk terus tanpa
-batas — gak ada mekanisme buang yang lama atau ringkas yang sudah lewat.
-Buat testing oke, tapi kalau agent jalan jangka panjang ini bakal jadi masalah.
-Cara akses sekarang: `node -e "import('./lib/db.js').then(db =>
-console.log(db.getRecentConversations(20)))"` atau install sqlite3 di Termux
-(`pkg install sqlite`) lalu `sqlite3 ~/.krouter_data/krouter.db
-"SELECT * FROM conversations;"`. Solusi jangka panjang: proses distilasi
-(History mentah → Durable Memory ringkas, sesuai 4-layer architecture di
-SPEC ini) — ini bagian dari "real build" next phase, bukan M0-M5.
-loop) dulu, baru M5 (provider fallback). Alasan urutan: Bash tool nambah
-kapabilitas paling besar dengan resiko kompleksitas paling kecil; provider
-fallback baru masuk akal setelah ada lebih banyak kemampuan yang "berharga
-dilindungi" dari downtime 1 provider.
+**[RESOLVED] fileSnapshot dibaca agent sebagai task instruction:**
+Fix: tambah label eksplisit di userPrompt (`Isi file saat ini (kalau relevan):`)
+sehingga agent tidak bingung antara context file dan instruksi user.
 
+**[RESOLVED] Memory layer 4 (rollback):**
+Planned sebagai shadow git. Decision: SQLite snapshot lebih pragmatis untuk
+Termux (no external deps, consistent dengan arsitektur storage yang ada).
+
+**[RESOLVED] done action tidak ke-log:**
+`ACTION: done` dulu tidak memanggil `logStep`. Fix: tambah log sebelum return.
 
