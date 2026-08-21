@@ -188,21 +188,36 @@ async function runTask(instruction, agentMd, availableTools) {
     }
 
     // --- BASH ---
-    if (step.action === 'bash') {
+  if (step.action === 'bash') {
       console.log(`\n[COMMAND] ${step.command}`);
-      const dangerous = isDangerous(step.command);
-      const bashApproval = await askApproval('bash', { forceAsk: dangerous });
-    if (!bashApproval.approved) {
+     const { checkPackageSafety } = await import('./lib/package-safety.js');
+     const safety = await checkPackageSafety(step.command);
+
+  if (safety) {
+  console.log(`\n[PACKAGE SAFETY CHECK]`);
+  safety.flags.forEach(f => console.log(`  ${f}`));
+
+  if (safety.blocked) {
+    console.log(`\n[BLOCKED] Command ini diblokir otomatis karena alasan keamanan.`);
+    logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, blocked: true }, reasoning: step.reasoning, approved: false });
+    console.log('[DITOLAK] Command dibatalkan, task dihentikan.');
+    return;
+  }
+  }
+
+    const dangerous = isDangerous(step.command);
+    const bashApproval = await askApproval('bash', { forceAsk: dangerous });
+  if (!bashApproval.approved) {
       logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved: false });
       console.log('[DITOLAK] Command dibatalkan, task dihentikan.');
       return;
      }
-    if (bashApproval.condition) {
+  if (bashApproval.condition) {
        history.push({ action: 'user_condition', condition: bashApproval.condition });
      }
-       const result = await runCommand(step.command);
+    const result = await runCommand(step.command);
        console.log(`[EXIT ${result.code}] stdout: ${result.stdout || '(kosong)'}`);
-    if (result.stderr) console.log(`[STDERR] ${result.stderr}`);
+  if (result.stderr) console.log(`[STDERR] ${result.stderr}`);
       logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider, ...result }, reasoning: step.reasoning, approved: true });
       history.push({ action: 'bash', command: step.command, approved: true, result });
       continue;
