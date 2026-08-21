@@ -8,6 +8,11 @@ import { runCommand } from './lib/bash.js';
 import { logStep, saveDecision,   getRecentDecisions, saveSnapshot, getLatestSnapshot, listSnapshots } from './lib/db.js';
 import { discoverTools, callTool } from './lib/mcp.js';
 
+const DEBUG = process.argv.includes('--debug');
+export function dbg(...args) {
+  if (DEBUG) console.log('[DEBUG]', ...args);
+}
+
 const MAX_LOOPS = 10;
 const sessionAllowed = new Set();
 
@@ -97,11 +102,19 @@ async function runTask(instruction, agentMd, availableTools) {
   const history = [];
   let lastTarget = null;
   const recentMemory = getRecentDecisions(5);
+     dbg('=== Task Start ===');
+     dbg('Instruction:', instruction);
+     dbg('agentMd:', agentMd ? `loaded (${agentMd.length} chars)` : 'not found');
+     dbg('recentMemory:', recentMemory.length, 'entries');
+     dbg('availableTools:', availableTools?.map(t => t.name) || []);
 
   for (let i = 1; i <= MAX_LOOPS; i++) {
     console.log(`\n=== Langkah ${i}/${MAX_LOOPS} ===`);
     const fileSnapshot = readFileSafe(lastTarget);
+     dbg(`--- Loop ${i} ---`);
+     dbg('fileSnapshot:', fileSnapshot.slice(0, 100) + (fileSnapshot.length > 100 ? '...' : ''));
     const step = await planStep(askWithFallback, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools });
+      dbg('Parsed step:', JSON.stringify({ action: step.action, target: step.target, tool: step.tool }).replace(/undefined/g, '-'));
     console.log(`[PROVIDER] ${fallbackState.lastProvider}`);
     console.log(`[REASONING] ${step.reasoning}`);
 
