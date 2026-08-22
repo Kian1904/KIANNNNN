@@ -8,6 +8,7 @@ import { runCommand } from './lib/bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot, getLatestSnapshot, listSnapshots } from './lib/db.js';
 import { discoverTools, callTool } from './lib/mcp.js';
 import { print, printBlock, printList, header, sep, blank, PROMPT, SLASH_COMMANDS, completer } from './lib/ui.js';
+import { classifyIntent } from './lib/intent.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG]', ...args); };
@@ -106,6 +107,20 @@ async function askApproval(label, { forceAsk = false } = {}) {
 
   print('warn', 'Input tidak valid — default: tidak diapprove.');
   return { approved: false, condition: null };
+}
+
+async function runCasual(instruction) {
+  const CASUAL_SYSTEM = `Kamu asisten AI yang helpful dan natural. Jawab dengan santai dan langsung — tidak perlu format khusus, tidak perlu list kecuali memang relevan. Gunakan bahasa yang sama dengan user.`;
+  try {
+    const reply = await askWithFallback(CASUAL_SYSTEM, instruction);
+    blank();
+    printBlock(reply.replace(/<think>[\s\S]*?<\/think>/gi, '').trim());
+    blank();
+    trackProvider(fallbackState.lastProvider);
+    trackAction('casual');
+  } catch (err) {
+    print('error', `Gagal: ${err.message}`);
+  }
 }
 
 async function runTask(instruction, agentMd, availableTools) {
@@ -422,7 +437,23 @@ async function chat() {
       continue;
     }
 
+  const intent = await classifyIntent(instruction, askWithFallback);
+     dbg('Intent:', intent);
+
+   if (intent === 'casual') {
+   await runCasual(instruction);
+ } 
+   else if (intent === 'hybrid') {
+  // Jawab casual dulu, lalu tanya mau lanjut eksekusi
+  await runCasual(instruction);
+  const cont = await ask('  Mau lanjut eksekusi task? (y/n): ');
+    if (cont.trim().toLowerCase() === 'y') {
     await runTask(instruction, agentMd, availableTools);
+  }
+  }
+  else {
+  await runTask(instruction, agentMd, availableTools);
+      }
   }
 }
 
