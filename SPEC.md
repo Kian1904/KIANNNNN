@@ -16,11 +16,12 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP.
   Tidak migrasi ke Postgres/Turso/cloud DB manapun kecuali ada alasan teknis
   baru yang konkret.
 
-- **Provider cascade:** xKiro (DeepSeek v4 Pro) → xKiro-Coder (Qwen3 Coder) →
-  OpenRouter (Nemotron 550B) → Gemini → Mistral. Groq dikeluarkan dari primary
-  karena TPM rate limit terlalu kecil untuk context yang sekarang. Semua
-  provider pakai OpenAI-compatible format kecuali Gemini (adapter terpisah).
-  Nama model disimpan di `.env`, bukan hardcode.
+- **Provider cascade (8 provider):** HuggingFace Router (DeepSeek-R1) →
+  xKiro-Coder (Qwen3 Coder Plus) → Gemini Flash-Lite → xKiro (DeepSeek v4 Pro)
+  → OpenRouter (Nemotron Ultra 550B) → Nvidia NIM (Laguna) → Mistral → Groq.
+  Groq cuma fallback terakhir karena TPM rate limit terlalu kecil untuk
+  context yang sekarang. Semua provider pakai OpenAI-compatible format kecuali
+  Gemini (adapter terpisah). Nama model disimpan di `.env`, bukan hardcode.
 
 - **Approval model:** 4-pilihan per aksi — (1) Allow once, (2) Allow for this
   session, (3) Do not approve, (4) Approve with condition. Session allow
@@ -119,11 +120,14 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP.
 
 | Urutan | Provider | Platform | Model default |
 |--------|----------|----------|---------------|
-| 1 | xKiro | xkiro.com | deepseek/deepseek-v4-pro |
-| 2 | xKiro-Coder | xkiro.com | qwen/qwen3-coder |
-| 3 | OpenRouter | openrouter.ai | nvidia/nemotron-ultra-550b |
-| 4 | Gemini | Google | gemini-2.5-flash |
-| 5 | Mistral | mistral.ai | mistral-small-latest |
+| 1 | HuggingFace | router.huggingface.co | deepseek-ai/DeepSeek-R1 |
+| 2 | xKiro-Coder | xkiro.com | qwen/qwen3-coder-plus |
+| 3 | Gemini | Google | gemini-3.1-flash-lite |
+| 4 | xKiro | xkiro.com | deepseek/deepseek-v4-pro |
+| 5 | OpenRouter | openrouter.ai | nvidia/nemotron-3-ultra-550b-a55b:free |
+| 6 | Nvidia NIM | integrate.api.nvidia.com | poolside/laguna-xs-2.1 |
+| 7 | Mistral | mistral.ai | mistral-small-latest |
+| 8 | Groq (fallback terakhir) | groq.com | qwen/qwen3.6-27b |
 
 ## FINDING Terbuka
 
@@ -167,6 +171,15 @@ Termux. Implemented via tabel `snapshots` + `/rollback` command.
 **[RESOLVED] Model terlalu kecil sebagai primary:**
 Qwen 27b via Groq confused dengan multi-layer context. Fix: xKiro (DeepSeek v4
 Pro) sebagai primary, Groq dikeluarkan dari cascade.
+
+**[RESOLVED] Blok parsing chat salah tempel + drift cascade:**
+Blok parsing `ACTION: chat` nyasar masuk ke `buildHistoryText` (lib/plan.js):
+setiap bash yang diapprove memicu ReferenceError di loop berikutnya, dan
+`ACTION: chat` jatuh ke parser edit sampai throw. Fix: blok chat dikembalikan
+ke `planStep`, trailing quote model Nvidia dihapus (regresi dari fix lama),
+print provider/reasoning dobel & stat `chat` dobel dibersihkan, tabel cascade
++ bullet arsitektur disinkronkan dengan kode (DECISION: spec ngikutin kode,
+8 provider).
 
 **[RESOLVED] Nvidia model string bug:**
 `defaultModel: 'poolside/laguna-xs-2.1"'` ada trailing `"`. Fix: hapus karakter

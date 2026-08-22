@@ -131,9 +131,6 @@ async function runTask(instruction, agentMd, availableTools) {
 
     dbg('Parsed step:', JSON.stringify({ action: step.action, target: step.target, tool: step.tool }).replace(/undefined/g, '-'));
 
-    print('provider', fallbackState.lastProvider);
-    print('reasoning', step.reasoning);
-
     // --- DONE ---
     if (step.action === 'done') {
       print('done', step.summary);
@@ -144,8 +141,6 @@ async function runTask(instruction, agentMd, availableTools) {
     
     // --- CHAT (no step header, no ceremony) ---
    if (step.action === 'chat') {
-     trackProvider(fallbackState.lastProvider);
-    trackAction('chat');
     blank();
     printBlock(step.reply);
     blank();
