@@ -1,20 +1,29 @@
 import 'dotenv/config';
 import fs from 'fs';
 import readline from 'readline';
-import { askWithFallback, fallbackState } from './lib/providers.js';
+import { askWithFallback, fallbackState, PROVIDER_NAMES, setModelPrimary, getModelPrimary } from './lib/providers.js';
 import { planStep } from './lib/plan.js';
 import { showDiff } from './lib/diff.js';
 import { runCommand } from './lib/bash.js';
-import { logStep, saveDecision,   getRecentDecisions, saveSnapshot, getLatestSnapshot, listSnapshots } from './lib/db.js';
+import { logStep, saveDecision, getRecentDecisions, saveSnapshot, getLatestSnapshot, listSnapshots } from './lib/db.js';
 import { discoverTools, callTool } from './lib/mcp.js';
+import { print, printBlock, printList, header, sep, blank, PROMPT, SLASH_COMMANDS, completer } from './lib/ui.js';
 
 const DEBUG = process.argv.includes('--debug');
-export function dbg(...args) {
-  if (DEBUG) console.log('[DEBUG]', ...args);
-}
+const dbg = (...args) => { if (DEBUG) console.log('[DEBUG]', ...args); };
 
 const MAX_LOOPS = 10;
 const sessionAllowed = new Set();
+
+// Session stats
+const stats = { tasks: 0, llmCalls: 0, byProvider: {}, byAction: {} };
+function trackProvider(name) {
+  stats.llmCalls++;
+  stats.byProvider[name] = (stats.byProvider[name] || 0) + 1;
+}
+function trackAction(action) {
+  stats.byAction[action] = (stats.byAction[action] || 0) + 1;
+}
 
 const ALWAYS_ASK_PATTERNS = [
   /\brm\b/, /\bsudo\b/, /\bchmod\b/, /\bdd\b/,
@@ -25,8 +34,11 @@ function isDangerous(command) {
   return ALWAYS_ASK_PATTERNS.some(p => p.test(command));
 }
 
-// Satu rl untuk seluruh sesi — biar gak konflik kalau dibuat ulang di tiap prompt
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+  completer
+});
 
 function ask(question) {
   return new Promise(resolve => rl.question(question, resolve));
@@ -53,89 +65,96 @@ function loadAgentMd() {
   const path = './AGENT.md';
   if (!fs.existsSync(path)) return null;
   return fs.readFileSync(path, 'utf8');
-   }
+}
 
 async function askApproval(label, { forceAsk = false } = {}) {
   if (!forceAsk && sessionAllowed.has(label)) {
-    console.log(`[AUTO] ${label} diizinkan untuk sesi ini.`);
+    print('auto', `${label} diizinkan untuk sesi ini.`);
     return { approved: true, condition: null };
   }
 
-  if (forceAsk) {
-    console.log('[⚠️ PERINGATAN] Command destruktif — "allow for session" tidak tersedia.');
-  }
+  if (forceAsk) print('warn', 'Command destruktif — "allow for session" tidak tersedia.');
 
-  console.log('1) Allow once');
-  if (!forceAsk) console.log('2) Allow for this session');
-  console.log('3) Do not approve');
-  console.log('4) Approve with condition');
+  console.log('  1) Allow once');
+  if (!forceAsk) console.log('  2) Allow for this session');
+  console.log('  3) Do not approve');
+  console.log('  4) Approve with condition');
 
-  const choice = (await ask('> ')).trim();
+  const choice = (await ask(PROMPT)).trim();
 
   if (choice === '1') return { approved: true, condition: null };
 
   if (choice === '2') {
     if (forceAsk) {
-      console.log('[Tidak tersedia untuk command destruktif.]');
+      print('warn', 'Tidak tersedia untuk command destruktif.');
       return { approved: false, condition: null };
     }
     sessionAllowed.add(label);
-    console.log(`[SESSION] ${label} akan auto-approved sampai /exit.`);
+    print('session_ok', `${label} akan auto-approved sampai /exit.`);
     return { approved: true, condition: null };
   }
 
   if (choice === '3') return { approved: false, condition: null };
 
   if (choice === '4') {
-    const condition = await ask('Ketik kondisi: ');
-    console.log(`\nKondisi yang akan diteruskan ke agent: "${condition.trim()}"`);
-    const confirm = await ask('Lanjut? (y/n): ');
+    const condition = await ask('  Ketik kondisi: ');
+    console.log(`\n  Kondisi yang akan diteruskan: "${condition.trim()}"`);
+    const confirm = await ask('  Lanjut? (y/n): ');
     if (confirm.trim().toLowerCase() !== 'y') return { approved: false, condition: null };
     return { approved: true, condition: condition.trim() };
   }
 
-  console.log('[Input tidak valid, default: tidak diapprove]');
+  print('warn', 'Input tidak valid — default: tidak diapprove.');
   return { approved: false, condition: null };
- }
+}
 
 async function runTask(instruction, agentMd, availableTools) {
+  stats.tasks++;
   const history = [];
   let lastTarget = null;
   const recentMemory = getRecentDecisions(5);
-     dbg('=== Task Start ===');
-     dbg('Instruction:', instruction);
-     dbg('agentMd:', agentMd ? `loaded (${agentMd.length} chars)` : 'not found');
-     dbg('recentMemory:', recentMemory.length, 'entries');
-     dbg('availableTools:', availableTools?.map(t => t.name) || []);
+
+  dbg('=== Task Start ===');
+  dbg('Instruction:', instruction);
+  dbg('agentMd:', agentMd ? `loaded (${agentMd.length} chars)` : 'not found');
+  dbg('recentMemory:', recentMemory.length, 'entries');
+  dbg('availableTools:', availableTools?.map(t => t.name) || []);
 
   for (let i = 1; i <= MAX_LOOPS; i++) {
-    console.log(`\n=== Langkah ${i}/${MAX_LOOPS} ===`);
+    blank();
+    sep();
+    print('step', `${i} / ${MAX_LOOPS}`);
+    sep();
+
     const fileSnapshot = readFileSafe(lastTarget);
-     dbg(`--- Loop ${i} ---`);
-     dbg('fileSnapshot:', fileSnapshot.slice(0, 100) + (fileSnapshot.length > 100 ? '...' : ''));
+    dbg(`--- Loop ${i} ---`);
+    dbg('fileSnapshot:', fileSnapshot.slice(0, 100) + (fileSnapshot.length > 100 ? '...' : ''));
+
     const step = await planStep(askWithFallback, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools });
-      dbg('Parsed step:', JSON.stringify({ action: step.action, target: step.target, tool: step.tool }).replace(/undefined/g, '-'));
-    console.log(`[PROVIDER] ${fallbackState.lastProvider}`);
-    console.log(`[REASONING] ${step.reasoning}`);
+    trackProvider(fallbackState.lastProvider);
+    trackAction(step.action);
+
+    dbg('Parsed step:', JSON.stringify({ action: step.action, target: step.target, tool: step.tool }).replace(/undefined/g, '-'));
+
+    print('provider', fallbackState.lastProvider);
+    print('reasoning', step.reasoning);
 
     // --- DONE ---
     if (step.action === 'done') {
-      console.log(`[SELESAI] ${step.summary}`);
+      print('done', step.summary);
       logStep({ task: instruction, actionType: 'done', detail: null, reasoning: step.reasoning, approved: true });
+      blank();
       return;
     }
 
     // --- READ ---
     if (step.action === 'read') {
       const content = readFileSafe(step.target);
-      // Truncate biar gak bloat context window — 2000 char cukup buat kebanyakan file
       const preview = content.length > 2000
-        ? content.slice(0, 2000) + '\n[...TRUNCATED — file masih ada isinya tapi dipotong di sini]'
+        ? content.slice(0, 2000) + '\n[...TRUNCATED]'
         : content;
-      console.log(`[READ] ${step.target}`);
-      console.log(`--- ISI FILE ---`);
-      console.log(preview);
-      console.log(`--- END ---`);
+      print('read', step.target);
+      printBlock(preview);
       history.push({ action: 'read', target: step.target, content: preview });
       continue;
     }
@@ -144,172 +163,254 @@ async function runTask(instruction, agentMd, availableTools) {
     if (step.action === 'list_dir') {
       const listing = listDirSafe(step.target);
       const dir = (step.target || '.').trim();
-      console.log(`[LIST_DIR] ${dir}\n${listing}`);
+      print('list_dir', dir);
+      printBlock(listing);
       history.push({ action: 'list_dir', target: dir, listing });
       continue;
     }
 
-   // --- REMEMBER ---
-   if (step.action === 'remember') {
+    // --- REMEMBER ---
+    if (step.action === 'remember') {
       saveDecision({ key: step.key, value: step.value, context: instruction });
-      console.log(`[REMEMBER] ${step.key}: ${step.value}`);
+      print('remember', `${step.key}: ${step.value}`);
       history.push({ action: 'remember', key: step.key, value: step.value });
       continue;
     }
-    
+
     // --- MCP_CALL ---
-  if (step.action === 'mcp_call') {
-    console.log(`[MCP] Memanggil tool: ${step.tool}`);
-    try {
-    const result = await callTool(step.tool, step.toolArgs);
-    console.log(`[MCP] Hasil:\n${result.slice(0, 500)}${result.length > 500 ? '...' : ''}`);
-    history.push({ action: 'mcp_call', tool: step.tool, result });
-  } catch (err) {
-    console.log(`[MCP ERROR] ${err.message}`);
-       history.push({ action: 'mcp_call', tool: step.tool, result: `ERROR: ${err.message}` });
-  }
-  continue;
-  }
-    
+    if (step.action === 'mcp_call') {
+      print('mcp', `Memanggil tool: ${step.tool}`);
+      try {
+        const result = await callTool(step.tool, step.toolArgs);
+        print('mcp', 'Hasil:');
+        printBlock(result.slice(0, 500) + (result.length > 500 ? '...' : ''));
+        history.push({ action: 'mcp_call', tool: step.tool, result });
+      } catch (err) {
+        print('mcp_err', err.message);
+        history.push({ action: 'mcp_call', tool: step.tool, result: `ERROR: ${err.message}` });
+      }
+      continue;
+    }
+
     // --- EDIT ---
     if (step.action === 'edit') {
       const current = readFileSafe(step.target);
-      console.log(`\n--- DIFF: ${step.target} ---`);
-      console.log(showDiff(current === '(file belum ada / belum ditentukan)' ? '' : current, step.new_content));
-      console.log(`--- END DIFF ---`);
+      print('diff', step.target);
+      printBlock(showDiff(current === '(file belum ada / belum ditentukan)' ? '' : current, step.new_content));
+      sep();
+
       const editApproval = await askApproval('edit');
       logStep({ task: instruction, actionType: 'edit', detail: { target: step.target, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved: editApproval.approved });
-    if (!editApproval.approved) {
-      console.log('[DITOLAK] Langkah dibatalkan, task dihentikan.');
-      return;
-    }
-    if (editApproval.condition) {
-      history.push({ action: 'user_condition', condition: editApproval.condition });        
-    }
-    
-   const existingContent = readFileSafe(step.target);
-    if (existingContent !== '(file belum ada / belum ditentukan)') {
-      saveSnapshot({ filepath: step.target, content: existingContent });
-      console.log(`[SNAPSHOTS] ${step.target} disimpan.`);
-    }
-  
+
+      if (!editApproval.approved) {
+        print('rejected', 'Langkah dibatalkan, task dihentikan.');
+        return;
+      }
+      if (editApproval.condition) {
+        history.push({ action: 'user_condition', condition: editApproval.condition });
+      }
+
+      const existingContent = readFileSafe(step.target);
+      if (existingContent !== '(file belum ada / belum ditentukan)') {
+        saveSnapshot({ filepath: step.target, content: existingContent });
+        print('snapshot', `${step.target} disimpan.`);
+      }
+
       fs.writeFileSync(step.target, step.new_content, 'utf8');
-      console.log(`[WRITE] ${step.target} diupdate.`);
+      print('edit_ok', `${step.target} diupdate.`);
       lastTarget = step.target;
       history.push({ action: 'edit', target: step.target, approved: true });
       continue;
     }
 
     // --- BASH ---
-  if (step.action === 'bash') {
-      console.log(`\n[COMMAND] ${step.command}`);
-     const { checkPackageSafety } = await import('./lib/package-safety.js');
-     const safety = await checkPackageSafety(step.command);
+    if (step.action === 'bash') {
+      print('bash', step.command);
 
-  if (safety) {
-  console.log(`\n[PACKAGE SAFETY CHECK]`);
-  safety.flags.forEach(f => console.log(`  ${f}`));
+      const { checkPackageSafety } = await import('./lib/package-safety.js');
+      const safety = await checkPackageSafety(step.command);
 
-  if (safety.blocked) {
-    console.log(`\n[BLOCKED] Command ini diblokir otomatis karena alasan keamanan.`);
-    logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, blocked: true }, reasoning: step.reasoning, approved: false });
-    console.log('[DITOLAK] Command dibatalkan, task dihentikan.');
-    return;
-  }
-  }
+      if (safety) {
+        print('safety', '');
+        safety.flags.forEach(f => printBlock(f));
+        if (safety.blocked) {
+          print('blocked', 'Command diblokir otomatis karena alasan keamanan.');
+          logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, blocked: true }, reasoning: step.reasoning, approved: false });
+          print('rejected', 'Command dibatalkan, task dihentikan.');
+          return;
+        }
+      }
 
-    const dangerous = isDangerous(step.command);
-    const bashApproval = await askApproval('bash', { forceAsk: dangerous });
-  if (!bashApproval.approved) {
-      logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved: false });
-      console.log('[DITOLAK] Command dibatalkan, task dihentikan.');
-      return;
-     }
-  if (bashApproval.condition) {
-       history.push({ action: 'user_condition', condition: bashApproval.condition });
-     }
-    const result = await runCommand(step.command);
-       console.log(`[EXIT ${result.code}] stdout: ${result.stdout || '(kosong)'}`);
-  if (result.stderr) console.log(`[STDERR] ${result.stderr}`);
+      const dangerous = isDangerous(step.command);
+      const bashApproval = await askApproval('bash', { forceAsk: dangerous });
+
+      if (!bashApproval.approved) {
+        logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved: false });
+        print('rejected', 'Command dibatalkan, task dihentikan.');
+        return;
+      }
+      if (bashApproval.condition) {
+        history.push({ action: 'user_condition', condition: bashApproval.condition });
+      }
+
+      const result = await runCommand(step.command);
+      print('exit_code', `${result.code}  stdout: ${result.stdout || '(kosong)'}`);
+      if (result.stderr) print('stderr', result.stderr);
+
       logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider, ...result }, reasoning: step.reasoning, approved: true });
       history.push({ action: 'bash', command: step.command, approved: true, result });
       continue;
     }
   }
 
-  console.log(`\n[BERHENTI] Sampai batas ${MAX_LOOPS} langkah tanpa selesai.`);
+  print('stop', `Sampai batas ${MAX_LOOPS} langkah tanpa selesai.`);
+  blank();
 }
 
+// ── /model handler ────────────────────────────────────────────────────────────
+async function handleModel(arg) {
+  const providers = PROVIDER_NAMES; // imported from providers.js
+  const current = getModelPrimary();
+
+  if (!arg || arg === 'list') {
+    print('model', 'Provider yang tersedia:');
+    printList(providers, current);
+    if (current) print('model', `Aktif: ${current}`);
+    else print('model', 'Menggunakan cascade default (xKiro pertama).');
+    return;
+  }
+
+  const num = parseInt(arg);
+  let chosen = null;
+  if (!isNaN(num) && num >= 1 && num <= providers.length) {
+    chosen = providers[num - 1];
+  } else {
+    chosen = providers.find(p => p.key === arg.toLowerCase());
+  }
+
+  if (!chosen) {
+    print('warn', `Provider tidak dikenal: "${arg}". Ketik /model list untuk daftar.`);
+    return;
+  }
+
+  setModelPrimary(chosen.key);
+  print('model', `Primary provider diset ke: ${chosen.label}`);
+}
+
+// ── /usage handler ────────────────────────────────────────────────────────────
+function handleUsage() {
+  print('usage', `Tasks: ${stats.tasks}  |  LLM calls: ${stats.llmCalls}`);
+
+  if (Object.keys(stats.byProvider).length > 0) {
+    print('usage', 'Per provider:');
+    Object.entries(stats.byProvider)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([name, count]) => printBlock(`${name}: ${count}`, 6));
+  }
+
+  if (Object.keys(stats.byAction).length > 0) {
+    print('usage', 'Per action:');
+    Object.entries(stats.byAction)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([action, count]) => printBlock(`${action}: ${count}`, 6));
+  }
+}
+
+// ── main chat loop ────────────────────────────────────────────────────────────
 async function chat() {
-  console.log('K-sRouter-CLI — ketik instruksi, /exit untuk keluar.\n');
-  
-  // 1. MCP discover dulu — ada timeout, jadi gak akan nge-hang diam-diam
   let availableTools = [];
   try {
     availableTools = await discoverTools();
   } catch (err) {
-    console.log(`[MCP] Gagal discover tools: ${err.message}`);
+    print('mcp_init', `Gagal discover tools: ${err.message}`);
   }
-  console.log(`[MCP] ${availableTools.length === 0 ? 'tidak ada tool tersedia.' : `${availableTools.length} tool tersedia: ${availableTools.map(t => t.name).join(', ')}`}`);
 
-  // 2. AGENT.md
   const agentMd = loadAgentMd();
-  if (agentMd) console.log('[AGENT.md] Project instructions loaded.\n');
+  const currentModel = getModelPrimary();
+  const modelLabel = currentModel
+    ? (PROVIDER_NAMES.find(p => p.key === currentModel)?.label || currentModel)
+    : 'xKiro / DeepSeek-v4-Pro';
 
-  // 3. Distill paling terakhir — paling lambat (panggil LLM), jangan sampai blokir startup
+  header(modelLabel, availableTools.map(t => t.name));
+
+  if (availableTools.length > 0) {
+    print('mcp_init', `${availableTools.length} tool: ${availableTools.map(t => t.name).join(', ')}`);
+  }
+  if (agentMd) print('agent_md', 'Project instructions loaded.');
+
   try {
     const { distillIfNeeded } = await import('./lib/distill.js');
     await distillIfNeeded(askWithFallback);
   } catch (err) {
-    console.log(`[DISTILL] Dilewati: ${err.message}`);
+    print('distill', `Dilewati: ${err.message}`);
   }
-  
-  while (true) {
-    const input = await ask('> ');
-    const instruction = input.trim();
 
+  print('info', 'Ketik instruksi. TAB untuk autocomplete /command.');
+  blank();
+
+  while (true) {
+    const input = await ask(PROMPT);
+    const instruction = input.trim();
     if (!instruction) continue;
 
+    // /exit
     if (instruction.toLowerCase() === '/exit') {
-      console.log('Bye.');
+      blank();
+      print('info', 'Bye.');
       rl.close();
       process.exit(0);
     }
 
-    if (instruction.toLowerCase().startsWith('/rollback')) {
-      const filepath = instruction.split(' ')[1];
-      
-    if(!filepath) {
-      const snaps = listSnapshots();
-    if(snaps.length === 0) {
-      console.log(`Belum ada snapshots tersimpan.`);
-    }
-    else {
-      console.log('File yang punya snapshot:');
-      snaps.forEach(s => console.log(` ${s.filepath} - ${s.versions} versi, terakhir: ${s.last_snapshot}`));
-    }
-    continue;
-    }
-    
-    const snap = getLatestSnapshot(filepath);
-    if (!snap) {
-      console.log(`[ROLLBACK] LO GIMANA SIH? GAK ADA FILE NYA😠${filepath}.`);
+    // /usage
+    if (instruction.toLowerCase() === '/usage') {
+      handleUsage();
       continue;
     }
-    
-    const current = readFileSafe(filepath);
-     console.log(`\n--- DIFF: ${filepath} (current → snapshot ${snap.created_at} ---`);
-     console.log(showDiff(current === '(file belum ada / belum ditentukan)' ? '' : current, snap.content));
-     console.log(`--- END DIFF ---`);
-     
-    const confirm = await ask('Rollback ke snapshot ini? (y/n): ');
-    if (confirm.trim().toLowerCase() === 'y') { 
-      fs.writeFileSync(filepath, snap.content, 'utf8');
-      console.log(`[ROLLBACK] ${filepath} dikembalikan ke snapshot ${snap.created_at}.`);
-    } else {
-      console.log(`[ROLLBACK] goblok, gw batalkan.`);
+
+    // /model [arg]
+    if (instruction.toLowerCase().startsWith('/model')) {
+      const arg = instruction.split(' ').slice(1).join(' ').trim();
+      await handleModel(arg);
+      continue;
     }
-    continue;
+
+    // /rollback [filepath]
+    if (instruction.toLowerCase().startsWith('/rollback')) {
+      const filepath = instruction.split(' ')[1];
+      if (!filepath) {
+        const snaps = listSnapshots();
+        if (snaps.length === 0) {
+          print('rollback', 'Belum ada snapshot tersimpan.');
+        } else {
+          print('rollback', 'File yang punya snapshot:');
+          snaps.forEach(s => printBlock(`${s.filepath}  —  ${s.versions} versi, terakhir: ${s.last_snapshot}`, 6));
+        }
+        continue;
+      }
+      const snap = getLatestSnapshot(filepath);
+      if (!snap) {
+        print('rollback', `Tidak ada snapshot untuk ${filepath}.`);
+        continue;
+      }
+      const current = readFileSafe(filepath);
+      print('diff', `${filepath}  (current → snapshot ${snap.created_at})`);
+      printBlock(showDiff(current === '(file belum ada / belum ditentukan)' ? '' : current, snap.content));
+      sep();
+      const confirm = await ask('  Rollback ke snapshot ini? (y/n): ');
+      if (confirm.trim().toLowerCase() === 'y') {
+        fs.writeFileSync(filepath, snap.content, 'utf8');
+        print('rollback', `${filepath} dikembalikan ke snapshot ${snap.created_at}.`);
+      } else {
+        print('rollback', 'Dibatalkan.');
+      }
+      continue;
+    }
+
+    // Unknown /command
+    if (instruction.startsWith('/')) {
+      print('warn', `Command tidak dikenal: "${instruction}".`);
+      print('info', 'Commands: ' + SLASH_COMMANDS.map(c => c.cmd).join(', '));
+      continue;
     }
 
     await runTask(instruction, agentMd, availableTools);
@@ -321,4 +422,3 @@ chat().catch(err => {
   rl.close();
   process.exit(1);
 });
-
