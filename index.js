@@ -121,11 +121,6 @@ async function runTask(instruction, agentMd, availableTools) {
   dbg('availableTools:', availableTools?.map(t => t.name) || []);
 
   for (let i = 1; i <= MAX_LOOPS; i++) {
-    blank();
-    sep();
-    print('step', `${i} / ${MAX_LOOPS}`);
-    sep();
-
     const fileSnapshot = readFileSafe(lastTarget);
     dbg(`--- Loop ${i} ---`);
     dbg('fileSnapshot:', fileSnapshot.slice(0, 100) + (fileSnapshot.length > 100 ? '...' : ''));
@@ -146,6 +141,25 @@ async function runTask(instruction, agentMd, availableTools) {
       blank();
       return;
     }
+    
+    // --- CHAT (no step header, no ceremony) ---
+   if (step.action === 'chat') {
+     trackProvider(fallbackState.lastProvider);
+    trackAction('chat');
+    blank();
+    printBlock(step.reply);
+    blank();
+    history.push({ action: 'chat', reply: step.reply });
+  continue;
+}
+
+// Untuk semua action teknis — baru tampilkan header
+    blank();
+    sep();
+    print('step', `${i} / ${MAX_LOOPS}`);
+    sep();
+    print('provider', fallbackState.lastProvider);
+   print('reasoning', step.reasoning);
 
     // --- READ ---
     if (step.action === 'read') {
