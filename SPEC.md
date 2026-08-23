@@ -1,186 +1,194 @@
 # K-sRouter-CLI — SPEC
 
-> Dokumen ini adalah SUMBER KEBENARAN project. Semua AI (Claude/Gemini/ChatGPT)
+> Dokumen ini adalah SUMBER KEBENARAN project. Semua AI (Claude/Gemini/Qwen/ChatGPT)
 > WAJIB baca file ini sebelum kerja apapun. Chat/history tidak dianggap sumber
 > kebenaran — kalau chat dan file ini beda, file ini yang menang.
 
 ## Tujuan
 Membangun agentic AI CLI otonom (setara Claude Code / Codex / Gemini CLI /
 Hermes Agent) yang jalan di Termux, ditenagai LLM API gratisan (multi-provider
-cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP.
+cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP plugin system.
 
 ## Keputusan Arsitektur (FINAL, jangan didebat ulang tanpa alasan baru)
 
-- **Storage:** SQLite lokal via `node:sqlite` (built-in Node, BUKAN
-  `better-sqlite3` — native module itu gagal build di Termux/ARM/Bionic libc).
-  Tidak migrasi ke Postgres/Turso/cloud DB manapun kecuali ada alasan teknis
-  baru yang konkret.
+- **Storage:** SQLite lokal via `node:sqlite` untuk conversation log dan memory.
+  JSON file (`~/.krouter_data/connections.json`) untuk MCP plugin registry —
+  dipilih karena human-readable dan mudah di-inspect/edit manual.
 
-- **Provider cascade (8 provider):** HuggingFace Router (DeepSeek-R1) →
-  xKiro-Coder (Qwen3 Coder Plus) → Gemini Flash-Lite → xKiro (DeepSeek v4 Pro)
-  → OpenRouter (Nemotron Ultra 550B) → Nvidia NIM (Laguna) → Mistral → Groq.
-  Groq cuma fallback terakhir karena TPM rate limit terlalu kecil untuk
-  context yang sekarang. Semua provider pakai OpenAI-compatible format kecuali
-  Gemini (adapter terpisah). Nama model disimpan di `.env`, bukan hardcode.
-
-- **Approval model:** 4-pilihan per aksi — (1) Allow once, (2) Allow for this
-  session, (3) Do not approve, (4) Approve with condition. Session allow
-  tersimpan di `Set` in-memory, reset saat `/exit`. Command yang cocok dengan
-  `ALWAYS_ASK_PATTERNS` (rm, sudo, chmod, dd, npm uninstall, kill, dll) tidak
-  bisa di-session-allow — selalu tanya. "Approve with condition" → kondisi
-  diketik user, diinject verbatim ke history sebagai `[USER CONDITION]`.
-  Semua aksi tercatat di log sebelum eksekusi.
+- **Provider cascade (7 provider):** xKiroCoder (Qwen3-Coder-Plus) → Gemini
+  (3.1 Flash-Lite) → xKiro (DeepSeek-v4-Pro) → OpenRouter (Nemotron-550B) →
+  Nvidia (Laguna) → Mistral → Groq. HuggingFace dihapus (kredit habis).
+  `/model <key>` untuk switch primary. `_primaryKey` di providers.js mengatur
+  urutan cascade tanpa ganti code. Model names di `.env`, bukan hardcode.
 
 - **Memory architecture — 4 layer, semua IMPLEMENTED:**
-  1. **Instructions** (statis, ditulis manual) — `AGENT.md` di root project.
-     Dibaca saat startup, diinject ke system prompt tiap task.
-  2. **Durable Memory** (dinamis, ditulis agent) — tabel `agent_decisions` dan
-     `agent_learning`. Agent simpan keputusan via `ACTION: remember`. Distilasi
-     otomatis dari `conversations` lama ke `agent_learning` saat row > 200
-     (via `lib/distill.js`). Dibaca tiap task sebagai context lintas sesi.
-  3. **Session History** (transkrip mentah) — tabel `conversations`. Semua
-     langkah agent tercatat per row. Pruning otomatis via distilasi (M6).
-  4. **Safety/Rollback** — SQLite snapshot isi file sebelum setiap `edit` pada
-     file yang sudah ada. User bisa `/rollback <filepath>` dari chat interface.
+  1. Instructions — `AGENT.md` di root, inject ke system prompt tiap task
+  2. Durable Memory — `agent_decisions` + `agent_learning`, via `ACTION: remember`
+  3. Session History — tabel `conversations`, pruning otomatis via distilasi
+  4. Safety/Rollback — SQLite snapshot sebelum edit, `/rollback` command
 
-- **Action types yang tersedia agent:** `edit`, `bash`, `done`, `read`,
-  `list_dir`, `remember`, `mcp_call`.
+- **Action types agent:** `edit`, `bash`, `done`, `read`, `list_dir`,
+  `remember`, `mcp_call`, `chat` (casual reply tanpa step ceremony)
 
-- **Chat interface (REPL):** `node index.js` masuk ke loop interaktif.
-  `node index.js --debug` masuk ke debug/inspect mode (lihat raw LLM response,
-  userPrompt preview, package safety fetch step-by-step, parsed step).
-  Commands: `/exit`, `/rollback [filepath]`. Input `/xxx` yang tidak dikenal
-  ditolak dengan error — tidak diteruskan ke agent.
+- **Intent routing:** Sebelum `runTask`, input diklasifikasi via LLM classifier
+  (`lib/intent.js`) → `casual` / `task` / `hybrid`. Casual: direct reply via
+  `runCasual()`. Hybrid: casual dulu lalu tanya apakah mau eksekusi.
 
-- **MCP integration:** K-sRouter sebagai MCP client. MCP server di K's Tools
-  (Vercel, endpoint `/api/mcp`, JSON-RPC 2.0 over HTTP). Tool yang di-expose:
-  `summarize` (5 mode: poin, detail, explain, tabel, tutorial). Discover tools
-  di startup, inject ke system prompt, agent bisa call via `ACTION: mcp_call`.
-  `MCP_SERVER_URL` di `.env`.
+- **Chat interface (REPL):** `node index.js` atau `node index.js --debug`.
+  Commands: `/exit`, `/rollback [filepath]`, `/model [key|list]`, `/usage`,
+  `/connect` (MCP plugin manager — IN PROGRESS, lihat M10).
 
-- **Package safety (M8):** Sebelum approval `npm install` atau `pkg install`,
-  system fetch metadata dari npm registry. Threshold: 404 → block otomatis,
-  published < 30 hari → warning, downloads < 1.000/week → warning. Known-bad
-  list hardcoded (kv, cacheable). `pkg` install: cek via `apt-cache search`,
-  block jika tidak ditemukan. Semua ini via `lib/package-safety.js`.
+- **MCP architecture — IN PROGRESS (M10):**
+  Plugin system berbasis registry JSON, bukan hardcode URL. Struktur folder:
+  ```
+  mcp/
+  ├── registry.js   ✅ DONE — load/save connections.json, CRUD operations
+  ├── client.js     ⬜ TODO — connect ke server, discover tools, call tools
+  └── catalog/
+      ├── index.js  ⬜ TODO — known connectors catalog (K's Tools, dll)
+      └── ktools.js ⬜ TODO — K's Tools connector (extracted dari lib/mcp.js)
+  ```
+  `mcp/registry.js` sudah selesai dan siap dipakai. Langkah berikutnya:
+  buat `mcp/client.js` yang replace `lib/mcp.js`, lalu `mcp/catalog/`.
 
-- **Safety/Rollback implementation:** SQLite snapshot (bukan shadow git).
-  File baru tidak punya snapshot — hanya file yang sudah ada yang di-snapshot
-  sebelum diedit.
+- **Package safety (M8):** `lib/package-safety.js`. npm registry check,
+  threshold: 404 → block, published < 30 hari → warn, downloads < 1000/week
+  → warn. Known-bad list: kv, cacheable. pkg: apt-cache search check.
 
-## Keamanan (repo public di Github)
+- **Code style:** Pure ESM. JSDoc untuk type annotations (TS-ready — bisa
+  migrate ke TypeScript kapanpun dengan rename .js → .ts + tsconfig, tanpa
+  ubah logic). Tidak pakai TypeScript sekarang karena overhead di Termux.
 
-- API key/token provider TIDAK BOLEH pernah nempel di code yang di-commit.
-- Pakai `.env` (via package `dotenv`, pure JS) buat semua credentials.
-- `.gitignore` WAJIB cover `.env`, file session lokal, dan config pribadi.
-- Nama model di `.env`, bukan hardcode — model gratisan sering deprecated.
+## Keamanan
+- API key/token TIDAK di-commit. Pakai `.env` via dotenv.
+- `.gitignore` cover `.env`, `~/.krouter_data/` (sudah di luar repo), config pribadi.
 
 ## Batasan Lingkungan (Android/Termux)
-
-- Bahasa: Node.js murni (opsional + TypeScript — aman ditambah kapan saja).
-  Python/Rust/C DIHINDARI karena native compile gagal/berat di Termux.
-- Tool-calling: provider gratisan gak semua support native function-calling.
-  Pendekatan: minta LLM output format terstruktur di teks biasa, parse manual.
-- **PENTING — Android background process killer:** Android 12+ bisa membunuh
-  proses Termux di background. Agent HANYA reliable selagi Termux di foreground.
-  Untuk unattended: pindah ke VPS, Termux jadi SSH client.
-- PROPOSAL terbuka: Go untuk versi selanjutnya — jangan pindah sebelum ada
-  milestone yang beneran jalan di Node.js.
+- Node.js murni. No native modules (better-sqlite3, dll — gagal di ARM/Bionic).
+- Android background killer: agent hanya reliable di foreground.
 
 ## Cara Kerja Tim
-
-- Satu AI driver per unit kerja.
-- Commit ke git tiap unit kecil selesai.
+- Satu AI driver per unit kerja. Commit setelah tiap unit selesai.
 - Format laporan: **FACT** / **FINDING** / **PROPOSAL** / **DECISION** / **ACTION**.
-- Jangan eksekusi/ubah/hapus file tanpa DECISION eksplisit.
-- Kalau state gak jelas: STOP, minta `git status` + `git log`.
+- Jangan ubah file tanpa DECISION eksplisit. Kalau state gak jelas: STOP, minta
+  `git status` + `git log` + baca SPEC ini dulu.
+- Kalau ada file baru yang dibuat: update SPEC ini juga.
+
+## Struktur Folder (current)
+```
+KIANNNNN/
+├── mcp/                    ← MCP plugin system (BARU, in progress)
+│   └── registry.js         ← ✅ DONE
+├── lib/
+│   ├── bash.js
+│   ├── db.js
+│   ├── diff.js
+│   ├── distill.js
+│   ├── intent.js
+│   ├── mcp.js              ← akan di-replace oleh mcp/client.js
+│   ├── package-safety.js
+│   ├── plan.js
+│   ├── providers.js
+│   └── ui.js
+├── AGENT.md
+├── index.js
+├── package.json
+└── SPEC.md
+```
 
 ## Milestone
 
-- [x] **M0** — Environment bersih, zero dependency.
-- [x] **M1** — CLI panggil 1 provider LLM, hasil nongol di terminal.
-- [x] **M2** — ReAct loop: read → plan → edit → approval y/n.
-- [x] **M3** — SQLite masuk, log percakapan ke tabel `conversations`.
-- [x] **M4** — Bash tool + iterating loop (agent self-correct dalam 1 task).
-- [x] **M5** — Provider fallback cascade (5 provider).
-- [x] **M5.5** — Chat interface REPL, `/exit`, `/rollback`. Action baru: `read`,
-      `list_dir`, `remember`. AGENT.md Layer 1. `agent_decisions` +
-      `agent_learning` Layer 2 foundation. Approval 4-pilihan + session allow +
-      `ALWAYS_ASK_PATTERNS`. SQLite snapshot + `/rollback` Layer 4.
-- [x] **M6** — Conversations pruning + distilasi otomatis (`lib/distill.js`).
-      Threshold 200 baris, batch 100, ringkasan ke `agent_learning`.
-- [x] **M7** — MCP integration. K's Tools sebagai MCP server (Vercel).
-      K-sRouter sebagai MCP client (`lib/mcp.js`). Tool `summarize` end-to-end
-      working. `ACTION: mcp_call` di agent pipeline.
-- [x] **M8** — Package safety (`lib/package-safety.js`). npm registry check,
-      threshold block/warn, known-bad list, pkg apt-cache check. Debug mode
-      (`--debug`) untuk inspect seluruh pipeline.
+- [x] M0 — Environment bersih, zero dependency
+- [x] M1 — CLI + LLM call
+- [x] M2 — ReAct loop (read→plan→edit→approval)
+- [x] M3 — SQLite conversations log
+- [x] M4 — Bash tool + iterating loop
+- [x] M5 — Provider fallback cascade
+- [x] M5.5 — Chat REPL, action types, memory 4-layer, approval 4-pilihan, rollback
+- [x] M6 — Conversations pruning + distilasi (lib/distill.js)
+- [x] M7 — MCP client (lib/mcp.js) + K's Tools MCP server (Vercel)
+- [x] M8 — Package safety + debug mode (--debug)
+- [x] M9 — TUI formatting (lib/ui.js), /model switch, /usage stats,
+           intent classifier casual/task/hybrid (lib/intent.js),
+           ACTION: chat untuk casual reply tanpa step ceremony
+- [ ] **M10 — MCP Plugin System (IN PROGRESS)**
+  - [x] `mcp/registry.js` — JSON-based plugin registry, CRUD, JSDoc typed
+  - [ ] `mcp/client.js` — multi-server client, replace lib/mcp.js
+  - [ ] `mcp/catalog/index.js` — known connectors catalog
+  - [ ] `mcp/catalog/ktools.js` — K's Tools connector
+  - [ ] `/connect` command di index.js — dashboard plugin manager
+  - [ ] Update index.js imports: dari lib/mcp.js → mcp/client.js
+- [ ] **M11 — Web Search (ACTION: web_search)**
+  - Cascade: Serper → Tavily
+  - Hasil mentah tidak ditampilkan ke user
+  - Agent reasoning dari hasil, output ke history
+  - User lihat reasoning + sumber
+  - File baru: `lib/search.js`
+- [ ] **M12 — Extended MAX_LOOPS**
+  - `const MAX_LOOPS = parseInt(process.env.MAX_LOOPS) || 25`
+  - Set di `.env`: MAX_LOOPS=25
 
 ## Provider Cascade (current)
 
-| Urutan | Provider | Platform | Model default |
-|--------|----------|----------|---------------|
-| 1 | HuggingFace | router.huggingface.co | deepseek-ai/DeepSeek-R1 |
-| 2 | xKiro-Coder | xkiro.com | qwen/qwen3-coder-plus |
-| 3 | Gemini | Google | gemini-3.1-flash-lite |
-| 4 | xKiro | xkiro.com | deepseek/deepseek-v4-pro |
-| 5 | OpenRouter | openrouter.ai | nvidia/nemotron-3-ultra-550b-a55b:free |
-| 6 | Nvidia NIM | integrate.api.nvidia.com | poolside/laguna-xs-2.1 |
-| 7 | Mistral | mistral.ai | mistral-small-latest |
-| 8 | Groq (fallback terakhir) | groq.com | qwen/qwen3.6-27b |
+| Urutan | Key | Provider | Model default |
+|--------|-----|----------|---------------|
+| 1 | xkiro-coder | xKiro | qwen/qwen3-coder-plus |
+| 2 | gemini | Google | gemini-3.1-flash-lite |
+| 3 | xkiro | xKiro | deepseek/deepseek-v4-pro |
+| 4 | openrouter | OpenRouter | nvidia/nemotron-3-ultra-550b-a55b:free |
+| 5 | nvidia | Nvidia NIM | poolside/laguna-xs-2.1 |
+| 6 | mistral | Mistral | mistral-small-latest |
+| 7 | groq | Groq (last resort) | qwen/qwen3.6-27b |
+
+## NEXT SESSION START POINT
+**Baca ini dulu sebelum kerja apapun.**
+
+State saat ini: M10 sedang dikerjakan. `mcp/registry.js` sudah ada.
+Langkah berikutnya (dikerjakan berurutan):
+
+1. Buat `mcp/client.js` — multi-server MCP client yang:
+   - Load active connections dari `mcp/registry.js`
+   - Discover tools dari semua active server (parallel fetch)
+   - `callTool(toolName, args)` tau harus hit server mana
+   - Handle timeout dan graceful error per server
+
+2. Buat `mcp/catalog/ktools.js` — extracted K's Tools connector:
+   ```js
+   export default {
+     name: "K's Tools",
+     url: process.env.MCP_SERVER_URL,
+     description: "Summarize dan tools belajar"
+   }
+   ```
+
+3. Buat `mcp/catalog/index.js` — known connectors catalog:
+   ```js
+   import ktools from './ktools.js';
+   export const CATALOG = [ktools, /* tambah lainnya nanti */];
+   ```
+
+4. Update `index.js`:
+   - Ganti `import { discoverTools, callTool } from './lib/mcp.js'`
+     menjadi `import { discoverTools, callTool } from './mcp/client.js'`
+   - Tambah `/connect` command handler yang:
+     - `/connect` → tampilkan active connectors + catalog
+     - `/connect add <url>` → tambah custom connector
+     - `/connect toggle <name>` → enable/disable
+
+5. Setelah M10 done: lanjut M11 (web search) lalu M12 (MAX_LOOPS).
 
 ## FINDING Terbuka
 
-**[OPEN] MCP result bloat context window:**
-Hasil `mcp_call` yang panjang masuk ke history dan dikirim ulang ke LLM di
-langkah berikutnya. Bisa trigger rate limit (terjadi di Groq). Mitigasi:
-truncate MCP result di `buildHistoryText` lebih agresif, atau skip full result
-dari history kalau sudah di-`done` di langkah berikutnya.
+**[OPEN] lib/mcp.js masih aktif dipakai:**
+Belum di-replace oleh mcp/client.js. Jangan hapus sampai mcp/client.js selesai
+dan ditest. Setelah selesai: hapus lib/mcp.js, update semua import.
 
-**[OPEN] Snapshot untuk file baru:**
-File yang baru dibuat tidak punya snapshot (tidak ada "sebelumnya"). Rollback
-tidak tersedia untuk file baru. Solusi potensial: simpan snapshot kosong untuk
-file baru, atau tandai di history.
+**[OPEN] MCP result bloat context window:**
+Hasil mcp_call panjang masuk history → kirim ulang ke LLM di langkah berikutnya.
+Mitigasi: truncate di buildHistoryText lebih agresif.
 
 **[OPEN] Diff tidak akurat untuk file besar:**
-`lib/diff.js` pakai parallel line comparison, bukan real diff algorithm. Untuk
-file dengan baris yang dipindah/disisipkan, output diff-nya misleading. Target
-masa depan: implementasi Myers diff algorithm atau pakai `diff` binary.
+lib/diff.js pakai parallel line comparison, bukan Myers diff.
 
-**[OPEN] Typosquatting pkg (Termux/APT):**
-APT/Termux repo tidak punya public API untuk download count atau umur package.
-Proteksi untuk `pkg install` cuma exist-check + known-bad list — jauh lebih
-lemah dari npm check. Perlu investigasi apakah ada metadata source lain.
-
-## FINDING Resolved
-
-**[RESOLVED] Conversations pruning:**
-Tabel `conversations` numpuk selamanya. Fix: M6 — distilasi otomatis ke
-`agent_learning`, baris lama dihapus setelah diringkas.
-
-**[RESOLVED] fileSnapshot dibaca agent sebagai task instruction:**
-Fix: tambah label eksplisit `Isi file saat ini (kalau relevan):` di userPrompt.
-
-**[RESOLVED] Memory layer 4 (rollback):**
-Planned sebagai shadow git. Decision: SQLite snapshot lebih pragmatis untuk
-Termux. Implemented via tabel `snapshots` + `/rollback` command.
-
-**[RESOLVED] done action tidak ke-log:**
-`ACTION: done` dulu tidak memanggil `logStep`. Fix: tambah log sebelum return.
-
-**[RESOLVED] Model terlalu kecil sebagai primary:**
-Qwen 27b via Groq confused dengan multi-layer context. Fix: xKiro (DeepSeek v4
-Pro) sebagai primary, Groq dikeluarkan dari cascade.
-
-**[RESOLVED] Blok parsing chat salah tempel + drift cascade:**
-Blok parsing `ACTION: chat` nyasar masuk ke `buildHistoryText` (lib/plan.js):
-setiap bash yang diapprove memicu ReferenceError di loop berikutnya, dan
-`ACTION: chat` jatuh ke parser edit sampai throw. Fix: blok chat dikembalikan
-ke `planStep`, trailing quote model Nvidia dihapus (regresi dari fix lama),
-print provider/reasoning dobel & stat `chat` dobel dibersihkan, tabel cascade
-+ bullet arsitektur disinkronkan dengan kode (DECISION: spec ngikutin kode,
-8 provider).
-
-**[RESOLVED] Nvidia model string bug:**
-`defaultModel: 'poolside/laguna-xs-2.1"'` ada trailing `"`. Fix: hapus karakter
-berlebih.
+**[OPEN] Snapshot untuk file baru:**
+File baru tidak punya snapshot — rollback tidak tersedia.

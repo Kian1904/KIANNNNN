@@ -6,7 +6,7 @@ import { planStep } from './lib/plan.js';
 import { showDiff } from './lib/diff.js';
 import { runCommand } from './lib/bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot, getLatestSnapshot, listSnapshots } from './lib/db.js';
-import { discoverTools, callTool } from './lib/mcp.js';
+import { discoverTools, callTool } from './mcp/client.js';
 import { print, printBlock, printList, header, sep, blank, PROMPT, SLASH_COMMANDS, completer } from './lib/ui.js';
 import { classifyIntent } from './lib/intent.js';
 
@@ -205,7 +205,7 @@ async function runTask(instruction, agentMd, availableTools) {
     if (step.action === 'mcp_call') {
       print('mcp', `Memanggil tool: ${step.tool}`);
       try {
-        const result = await callTool(step.tool, step.toolArgs);
+        const result = await callTool(step.tool, step.toolArgs, availableTools);
         print('mcp', 'Hasil:');
         printBlock(result.slice(0, 500) + (result.length > 500 ? '...' : ''));
         history.push({ action: 'mcp_call', tool: step.tool, result });
