@@ -207,7 +207,7 @@ async function runTask(instruction, agentMd, availableTools) {
       try {
         const result = await callTool(step.tool, step.toolArgs, availableTools);
         print('mcp', 'Hasil:');
-        printBlock(result.slice(0, 500) + (result.length > 500 ? '...' : ''));
+        printBlock(result.slice(0, 2500) + (result.length > 500 ? '...' : ''));
         history.push({ action: 'mcp_call', tool: step.tool, result });
       } catch (err) {
         print('mcp_err', err.message);
