@@ -179,19 +179,21 @@ Bug aktif: agent loop 10x untuk task mcp sederhana - perlu difix sebelum atau pa
 Belum di-replace oleh mcp/client.js. Jangan hapus sampai mcp/client.js selesai
 dan ditest. Setelah selesai: hapus lib/mcp.js, update semua import.
 
-**[OPEN] MCP result bloat context window:**
-Hasil mcp_call panjang masuk history → kirim ulang ke LLM di langkah berikutnya.
-Mitigasi: truncate di buildHistoryText lebih agresif.
-
 **[OPEN] Diff tidak akurat untuk file besar:**
 lib/diff.js pakai parallel line comparison, bukan Myers diff.
 
 **[OPEN] Snapshot untuk file baru:**
 File baru tidak punya snapshot — rollback tidak tersedia.
 
-**[OPEN] Agent terlalu banyak loop untuk task sederhana (mcp_call):**
-Agent masih list_dir + baca file sebelum mcp_call padahal tidak perlu.
-FIX yang dicoba: AGENT.md rule + SYSTEM_PROMOT hint - belum berhasil.
-Root cause diduga: mcp_call result masuk history -> agent loop lagi untuk "review".
-investigasi: coba inject instruksi di userPrompt section history bahwa mcp_call result tidak perlu di-review, langsung done
-(note, bisa coba bash atau jalankan index.js atau coba smoke-tests untuk mcp call tools "ringkas"-nya, dan juga kalau memang harus, kita dongkrak plan.js, bikin struktur file khusus userprompt dan system prompt yang saling nyatu, jadi gak berantakan plan.js).
+**[RESOLVED] Agent terlalu banyak loop untuk task sederhana (mcp_call):**
+Agent sebelumnya loop hingga 10x setelah mcp_call karena LLM menganggap perlu "review" hasil.
+Fix: tiga lapis — (1) perkuat SYSTEM_PROMPT di lib/plan.js dengan instruksi tegas: "JANGAN melakukan langkah lain setelah mcp_call kecuali user meminta. Anggap task selesai — pilih ACTION: done."; (2) tambah aturan di AGENT.md; (3) auto-done di index.js: setelah mcp_call, jika history hanya satu langkah dan instruksi tidak mengandung kata lanjutan (lanjut, terus, setelah, kemudian, lalu, selanjutnya), langsung return. Dengan ini, task mcp_call sederhana selesai dalam 1 loop.
+
+**[RESOLVED] MCP result bloat context window:**
+Hasil mcp_call panjang masuk history → kirim ulang ke LLM di langkah berikutnya.
+Fix: truncate mcp_call result di buildHistoryText (lib/plan.js) ke max 500 karakter.
+Tambahan: userPrompt di planStep sekarang punya reminder untuk langsung done setelah mcp_call.
+
+**[RESOLVED] Typosquatting pkg (APT/Termux):**
+Proteksi untuk pkg install cuma exist-check + known-bad list — jauh lebih lemah dari npm.
+Fix: implementasi kombinasi di lib/package-safety.js: apt-cache search + popularitas (hardcoded list) + similarity (Levenshtein distance) dengan threshold <= 2. Auto-block hanya untuk known-bad; sisanya warning. Tested dengan gti (git typo) dan pytnon (python typo) menunjukkan warning.

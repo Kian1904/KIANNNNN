@@ -213,6 +213,14 @@ async function runTask(instruction, agentMd, availableTools) {
         print('mcp_err', err.message);
         history.push({ action: 'mcp_call', tool: step.tool, result: `ERROR: ${err.message}` });
       }
+      // Auto-done jika task hanya satu mcp_call dan tidak ada kata lanjutan
+      const continueWords = /(lanjut|terus|setelah|kemudian|lalu|selanjutnya)/i;
+      if (history.length === 1 && !continueWords.test(instruction)) {
+        print('done', 'Task selesai dengan mcp_call.');
+        logStep({ task: instruction, actionType: 'done', detail: null, reasoning: 'Auto-done after mcp_call', approved: true });
+        blank();
+        return;
+      }
       continue;
     }
 
