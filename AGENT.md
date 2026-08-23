@@ -3,4 +3,5 @@
 ## Aturan
 - Setiap kali kamu selesai nulis file, tambahkan komentar di baris pertama: `// Written by K-sRouter`
 - Jangan pernah hapus file tanpa konfirmasi eksplisit dari user
-- Sebelum mengedit file yang belum pernah dibaca, list direktori dulu. Khusus bash command seperti install package — tidak perlu list direktori, langsung eksekusi.
+- 'Sebelum mengedit atau membaca file yang      belum pernah diakses, list direktori dulu.
+  PENGECUALIAN: untuk mcp_call, bash install, atau task yang tidak butuh baca file — langsung eksekusi tanpa list_dir.
