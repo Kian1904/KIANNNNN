@@ -112,12 +112,13 @@ KIANNNNN/
            intent classifier casual/task/hybrid (lib/intent.js),
            ACTION: chat untuk casual reply tanpa step ceremony
 - [ ] **M10 — MCP Plugin System (IN PROGRESS)**
-  - [x] `mcp/registry.js` — JSON-based plugin registry, CRUD, JSDoc typed
-  - [ ] `mcp/client.js` — multi-server client, replace lib/mcp.js
+  - [x] `mcp/registry.js` — JSON-based plugin registry, CRUD, JSDoc typed [DONE]
+  - [x] `mcp/client.js` — multi-server client, replace lib/mcp.js [DONE] (multi-server, parallel discovery, callTools butuh toolPool param)
   - [ ] `mcp/catalog/index.js` — known connectors catalog
   - [ ] `mcp/catalog/ktools.js` — K's Tools connector
   - [ ] `/connect` command di index.js — dashboard plugin manager
-  - [ ] Update index.js imports: dari lib/mcp.js → mcp/client.js
+  - [x] Update index.js imports: dari lib/mcp.js → mcp/client.js [DONE]
+  - [ ] Delete lib/mcp.js setelah catalog selesai (actually udah delete lib/mcp, tapi untuk mcp catalog belum)
 - [ ] **M11 — Web Search (ACTION: web_search)**
   - Cascade: Serper → Tavily
   - Hasil mentah tidak ditampilkan ke user
@@ -143,16 +144,11 @@ KIANNNNN/
 ## NEXT SESSION START POINT
 **Baca ini dulu sebelum kerja apapun.**
 
-State saat ini: M10 sedang dikerjakan. `mcp/registry.js` sudah ada.
-Langkah berikutnya (dikerjakan berurutan):
+Lanjut dari: mcp/client.js selesai, ditest working.
+Langkah berikutnya: mcp/catalog/ lalu /connect command.
+Bug aktif: agent loop 10x untuk task mcp sederhana - perlu difix sebelum atau parallel dengan catalog.
 
-1. Buat `mcp/client.js` — multi-server MCP client yang:
-   - Load active connections dari `mcp/registry.js`
-   - Discover tools dari semua active server (parallel fetch)
-   - `callTool(toolName, args)` tau harus hit server mana
-   - Handle timeout dan graceful error per server
-
-2. Buat `mcp/catalog/ktools.js` — extracted K's Tools connector:
+1. Buat `mcp/catalog/ktools.js` — extracted K's Tools connector:
    ```js
    export default {
      name: "K's Tools",
@@ -161,13 +157,13 @@ Langkah berikutnya (dikerjakan berurutan):
    }
    ```
 
-3. Buat `mcp/catalog/index.js` — known connectors catalog:
+2. Buat `mcp/catalog/index.js` — known connectors catalog:
    ```js
    import ktools from './ktools.js';
    export const CATALOG = [ktools, /* tambah lainnya nanti */];
    ```
 
-4. Update `index.js`:
+2. Update `index.js`:
    - Ganti `import { discoverTools, callTool } from './lib/mcp.js'`
      menjadi `import { discoverTools, callTool } from './mcp/client.js'`
    - Tambah `/connect` command handler yang:
@@ -175,7 +171,7 @@ Langkah berikutnya (dikerjakan berurutan):
      - `/connect add <url>` → tambah custom connector
      - `/connect toggle <name>` → enable/disable
 
-5. Setelah M10 done: lanjut M11 (web search) lalu M12 (MAX_LOOPS).
+4. Setelah M10 done: lanjut M11 (web search) lalu M12 (MAX_LOOPS).
 
 ## FINDING Terbuka
 
@@ -192,3 +188,10 @@ lib/diff.js pakai parallel line comparison, bukan Myers diff.
 
 **[OPEN] Snapshot untuk file baru:**
 File baru tidak punya snapshot — rollback tidak tersedia.
+
+**[OPEN] Agent terlalu banyak loop untuk task sederhana (mcp_call):**
+Agent masih list_dir + baca file sebelum mcp_call padahal tidak perlu.
+FIX yang dicoba: AGENT.md rule + SYSTEM_PROMOT hint - belum berhasil.
+Root cause diduga: mcp_call result masuk history -> agent loop lagi untuk "review".
+investigasi: coba inject instruksi di userPrompt section history bahwa mcp_call result tidak perlu di-review, langsung done
+(note, bisa coba bash atau jalankan index.js atau coba smoke-tests untuk mcp call tools "ringkas"-nya, dan juga kalau memang harus, kita dongkrak plan.js, bikin struktur file khusus userprompt dan system prompt yang saling nyatu, jadi gak berantakan plan.js).
