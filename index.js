@@ -9,6 +9,7 @@ import { logStep, saveDecision, getRecentDecisions, saveSnapshot, getLatestSnaps
 import { discoverTools, callTool } from './mcp/client.js';
 import { print, printBlock, printList, header, sep, blank, PROMPT, SLASH_COMMANDS, completer } from './lib/ui.js';
 import { classifyIntent } from './lib/intent.js';
+import { readFileSafe, listDirSafe, loatAgentMd } from './lib/utils/fs.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG]', ...args); };
@@ -43,29 +44,6 @@ const rl = readline.createInterface({
 
 function ask(question) {
   return new Promise(resolve => rl.question(question, resolve));
-}
-
-function readFileSafe(target) {
-  if (!target || !fs.existsSync(target)) return '(file belum ada / belum ditentukan)';
-  return fs.readFileSync(target, 'utf8');
-}
-
-function listDirSafe(target) {
-  const dir = (target || '.').trim();
-  if (!fs.existsSync(dir)) return `(direktori '${dir}' tidak ditemukan)`;
-  try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    if (entries.length === 0) return '(kosong)';
-    return entries.map(e => e.isDirectory() ? `${e.name}/` : e.name).join('\n');
-  } catch (err) {
-    return `(error baca direktori: ${err.message})`;
-  }
-}
-
-function loadAgentMd() {
-  const path = './AGENT.md';
-  if (!fs.existsSync(path)) return null;
-  return fs.readFileSync(path, 'utf8');
 }
 
 async function askApproval(label, { forceAsk = false } = {}) {
