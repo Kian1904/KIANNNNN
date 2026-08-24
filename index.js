@@ -10,6 +10,7 @@ import { discoverTools, callTool } from './mcp/client.js';
 import { print, printBlock, printList, header, sep, blank, PROMPT, SLASH_COMMANDS, completer } from './lib/ui.js';
 import { classifyIntent } from './lib/intent.js';
 import { readFileSafe, listDirSafe, loadAgentMd } from './lib/utils/fs.js';
+import { handleModel } from '.lib/commands/model.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG]', ...args); };
@@ -275,36 +276,6 @@ async function runTask(instruction, agentMd, availableTools) {
 
   print('stop', `Sampai batas ${MAX_LOOPS} langkah tanpa selesai.`);
   blank();
-}
-
-// ── /model handler ────────────────────────────────────────────────────────────
-async function handleModel(arg) {
-  const providers = PROVIDER_NAMES; // imported from providers.js
-  const current = getModelPrimary();
-
-  if (!arg || arg === 'list') {
-    print('model', 'Provider yang tersedia:');
-    printList(providers, current);
-    if (current) print('model', `Aktif: ${current}`);
-    else print('model', 'Menggunakan cascade default (xKiro pertama).');
-    return;
-  }
-
-  const num = parseInt(arg);
-  let chosen = null;
-  if (!isNaN(num) && num >= 1 && num <= providers.length) {
-    chosen = providers[num - 1];
-  } else {
-    chosen = providers.find(p => p.key === arg.toLowerCase());
-  }
-
-  if (!chosen) {
-    print('warn', `Provider tidak dikenal: "${arg}". Ketik /model list untuk daftar.`);
-    return;
-  }
-
-  setModelPrimary(chosen.key);
-  print('model', `Primary provider diset ke: ${chosen.label}`);
 }
 
 // ── /usage handler ────────────────────────────────────────────────────────────
