@@ -9,7 +9,7 @@ import { logStep, saveDecision, getRecentDecisions, saveSnapshot, getLatestSnaps
 import { discoverTools, callTool } from './mcp/client.js';
 import { print, printBlock, printList, header, sep, blank, PROMPT, SLASH_COMMANDS, completer } from './lib/ui.js';
 import { classifyIntent } from './lib/intent.js';
-import { readFileSafe, listDirSafe, loatAgentMd } from './lib/utils/fs.js';
+import { readFileSafe, listDirSafe, loadAgentMd } from './lib/utils/fs.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG]', ...args); };
