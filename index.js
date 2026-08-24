@@ -15,7 +15,7 @@ import { handleModel } from './lib/commands/model.js';
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG]', ...args); };
 
-const MAX_LOOPS = 10;
+const MAX_LOOPS = 20;
 const sessionAllowed = new Set();
 
 // Session stats
