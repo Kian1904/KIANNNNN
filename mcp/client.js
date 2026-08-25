@@ -14,14 +14,16 @@ import { getActiveConnections, updateTools } from './registry.js';
 
 const TIMEOUT_MS = 15000;
 
-/** @param {string} url @param {string} method @param {Object} params */
-async function mcpRequest(url, method, params = {}) {
+/** @param {string} url @param {string} method @param {Object} params @param {string|null} [apiKey] */
+async function mcpRequest(url, method, params = {}, apiKey = null) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const headers = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
       signal: controller.signal
     });
@@ -45,16 +47,17 @@ export async function discoverTools() {
   const results = await Promise.allSettled(
     connections.map(async conn => {
       try {
-        await mcpRequest(conn.url, 'initialize', {
+       await mcpRequest(conn.url, 'initialize', {
           protocolVersion: '2024-11-05',
           clientInfo: { name: 'k-srouter', version: '1.0.0' },
           capabilities: {}
-        });
-        const result = await mcpRequest(conn.url, 'tools/list');
+        }, conn.apiKey);
+        const result = await mcpRequest(conn.url, 'tools/list', {}, conn.apiKey);
         const tools = (result.tools || []).map(t => ({
           ...t,
           _serverName: conn.name,
-          _serverUrl: conn.url
+          _serverUrl: conn.url,
+          _apiKey: conn.apiKey
         }));
         updateTools(conn.name, tools);
         return tools;
@@ -82,8 +85,6 @@ export async function callTool(name, args, toolPool) {
   if (!tool) throw new Error(`Tool "${name}" tidak ditemukan di pool.`);
 
   const result = await mcpRequest(tool._serverUrl, 'tools/call', {
-    name,
-    arguments: args
-  });
+    name, arguments: args }, tool._apiKey);
   return result.content?.map(c => c.text || '').join('\n') || JSON.stringify(result);
 }

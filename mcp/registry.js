@@ -25,7 +25,8 @@ const CONNECTIONS_PATH = path.join(DATA_DIR, 'connections.json');
  * @property {boolean} active     - Apakah connector ini aktif
  * @property {McpTool[]} tools    - Tools yang di-cache dari last discovery
  * @property {string} addedAt     - ISO timestamp kapan ditambahkan
- * @property {string|null} lastConnected - ISO timestamp last successful connect
+ * @property {string|null} lastConnected - ISO timestamp last successful connecyt
+ * @property {string|null} apiKey - Bearer token/API key, kalau server butuh auth
  */
 
 /** @returns {{ connections: McpConnection[] }} */
@@ -69,17 +70,17 @@ export function getConnection(name) {
 export function addConnection({ name, url, active = true }) {
   const store = loadStore();
   const existing = store.connections.findIndex(c => c.name === name);
+  const prev = existing >= 0 ? store.connections[existing] : {};
   /** @type {McpConnection} */
   const conn = {
-    name,
-    url,
-    active,
     tools: [],
     addedAt: new Date().toISOString(),
     lastConnected: null,
-    ...(existing >= 0 ? store.connections[existing] : {}),
+    apiKey: null,
+    ...prev,
     // Override nama/url kalau ada update
     name, url, active
+  apiKey: apiKey !== undefined ? apiKey : (prev.apiKey ?? null)
   };
   if (existing >= 0) store.connections[existing] = conn;
   else store.connections.push(conn);
