@@ -12,6 +12,7 @@ import { classifyIntent } from './lib/intent.js';
 import { readFileSafe, listDirSafe, loadAgentMd } from './lib/utils/fs.js';
 import { handleModel } from './lib/commands/model.js';
 import { handleUsage } from './lib/commands/usage.js';
+import { handleConnect } from './lib/commands/connect.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG]', ...args); };
@@ -365,6 +366,21 @@ async function chat() {
         print('rollback', `${filepath} dikembalikan ke snapshot ${snap.created_at}.`);
       } else {
         print('rollback', 'Dibatalkan.');
+      }
+      continue;
+    }
+
+    // /connect [add <url> | toggle <name>]
+    if (instruction.toLowerCase().startsWith('/connect')) {
+      const arg = instruction.split(' ').slice(1).join(' ').trim();
+      const changed = await handleConnect(arg);
+      if (changed) {
+        try {
+          availableTools = await discoverTools();
+          print('mcp_init', `${availableTools.length} tool aktif: ${availableTools.map(t => t.name).join(', ') || '(tidak ada)'}`);
+        } catch (err) {
+          print('mcp_init', `Gagal rediscover: ${err.message}`);
+        }
       }
       continue;
     }
