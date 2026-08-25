@@ -11,6 +11,7 @@ import { print, printBlock, printList, header, sep, blank, PROMPT, SLASH_COMMAND
 import { classifyIntent } from './lib/intent.js';
 import { readFileSafe, listDirSafe, loadAgentMd } from './lib/utils/fs.js';
 import { handleModel } from './lib/commands/model.js';
+import { handleUsage } from './lib/commands/usage.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG]', ...args); };
@@ -278,25 +279,6 @@ async function runTask(instruction, agentMd, availableTools) {
   blank();
 }
 
-// ── /usage handler ────────────────────────────────────────────────────────────
-function handleUsage() {
-  print('usage', `Tasks: ${stats.tasks}  |  LLM calls: ${stats.llmCalls}`);
-
-  if (Object.keys(stats.byProvider).length > 0) {
-    print('usage', 'Per provider:');
-    Object.entries(stats.byProvider)
-      .sort((a, b) => b[1] - a[1])
-      .forEach(([name, count]) => printBlock(`${name}: ${count}`, 6));
-  }
-
-  if (Object.keys(stats.byAction).length > 0) {
-    print('usage', 'Per action:');
-    Object.entries(stats.byAction)
-      .sort((a, b) => b[1] - a[1])
-      .forEach(([action, count]) => printBlock(`${action}: ${count}`, 6));
-  }
-}
-
 // ── main chat loop ────────────────────────────────────────────────────────────
 async function chat() {
   let availableTools = [];
@@ -344,7 +326,7 @@ async function chat() {
 
     // /usage
     if (instruction.toLowerCase() === '/usage') {
-      handleUsage();
+      handleUsage(stats);
       continue;
     }
 
