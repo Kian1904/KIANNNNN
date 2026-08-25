@@ -7,6 +7,7 @@ import { showDiff } from './lib/diff.js';
 import { runCommand } from './lib/bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot, getLatestSnapshot, listSnapshots } from './lib/db.js';
 import { discoverTools, callTool } from './mcp/client.js';
+import { searchWeb } from './lib/search.js';
 import { print, printBlock, printList, header, sep, blank, PROMPT, SLASH_COMMANDS, completer } from './lib/ui.js';
 import { classifyIntent } from './lib/intent.js';
 import { readFileSafe, listDirSafe, loadAgentMd } from './lib/utils/fs.js';
@@ -201,6 +202,26 @@ async function runTask(instruction, agentMd, availableTools) {
         logStep({ task: instruction, actionType: 'done', detail: null, reasoning: 'Auto-done after mcp_call', approved: true });
         blank();
         return;
+      }
+      continue;
+    }
+
+    // --- WEB_SEARCH ---
+    if (step.action === 'web_search') {
+      print('web_search', step.query);
+      try {
+        const { provider, results } = await searchWeb(step.query);
+        // Hasil mentah (snippet penuh) TIDAK ditampilkan ke user — cuma sumber (url).
+        // Snippet lengkap dipush ke history buat direasoning-in LLM di langkah berikutnya,
+        // lalu user lihat reasoning+sumber lewat ACTION: done SUMMARY.
+        print('sources', results.length ? results.map(r => r.url).join('\n') : '(tidak ada hasil)');
+        const summary = results
+          .map((r, idx) => `[${idx + 1}] ${r.title}\n${r.url}\n${r.snippet}`)
+          .join('\n\n');
+        history.push({ action: 'web_search', query: step.query, provider, summary: summary || '(tidak ada hasil)' });
+      } catch (err) {
+        print('search_err', err.message);
+        history.push({ action: 'web_search', query: step.query, provider: null, summary: `ERROR: ${err.message}` });
       }
       continue;
     }
