@@ -79,7 +79,7 @@ export function addConnection({ name, url, active = true }) {
     apiKey: null,
     ...prev,
     // Override nama/url kalau ada update
-    name, url, active
+    name, url, active,
   apiKey: apiKey !== undefined ? apiKey : (prev.apiKey ?? null)
   };
   if (existing >= 0) store.connections[existing] = conn;
