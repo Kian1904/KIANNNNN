@@ -79,13 +79,22 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP plugin syst
 KIANNNNN/
 ├── mcp/                    ← MCP plugin system (BARU, in progress)
 │   └── registry.js         ← ✅ DONE
+|   └── client.js           < ✅️ DONE
 ├── lib/
-│   ├── bash.js
+│   ├── commands/
+│   │   ├── model.js      ✅ handleModel()
+│   │   └── usage.js      ✅ handleUsage(stats)
+│   ├── prompts/
+│   │   └── system.js     ✅ SYSTEM_PROMPT
+│   ├── utils/
+│   │   └── fs.js         ✅ readFileSafe, listDirSafe, loadAgentMd, isSafePath (security)
+|
+│   ├─ bash.js
 │   ├── db.js
 │   ├── diff.js
 │   ├── distill.js
 │   ├── intent.js
-│   ├── mcp.js              ← akan di-replace oleh mcp/client.js
+│   ├── mcp.js              ✅️ > sudah di-replace oleh mcp/client.js
 │   ├── package-safety.js
 │   ├── plan.js
 │   ├── providers.js
@@ -144,9 +153,8 @@ KIANNNNN/
 ## NEXT SESSION START POINT
 **Baca ini dulu sebelum kerja apapun.**
 
-Lanjut dari: mcp/client.js selesai, ditest working.
-Langkah berikutnya: mcp/catalog/ lalu /connect command.
-Bug aktif: agent loop 10x untuk task mcp sederhana - perlu difix sebelum atau parallel dengan catalog.
+Step berikutnya: lib/commands/rollback.js (extract dari index.js chat() loop),
+lalu update SPEC struktur folder, lalu lanjut M10 catalog/ dan /connect.
 
 1. Buat `mcp/catalog/ktools.js` — extracted K's Tools connector:
    ```js
@@ -197,3 +205,9 @@ Tambahan: userPrompt di planStep sekarang punya reminder untuk langsung done set
 **[RESOLVED] Typosquatting pkg (APT/Termux):**
 Proteksi untuk pkg install cuma exist-check + known-bad list — jauh lebih lemah dari npm.
 Fix: implementasi kombinasi di lib/package-safety.js: apt-cache search + popularitas (hardcoded list) + similarity (Levenshtein distance) dengan threshold <= 2. Auto-block hanya untuk known-bad; sisanya warning. Tested dengan gti (git typo) dan pytnon (python typo) menunjukkan warning.
+
+**[RESOLVED] Agent bisa baca .env dan file sensitif:**
+isSafePath() di lib/utils/fs.js -- BLOCKED_TARGETS list applied ke readFileSafe + listDirSafe.
+
+**[RESOLVED] Agent loop 10x untuk task mcp sederhana:**
+Auto-done setelah single mcp_call kalau tidak ada continue-words di instruksi.
