@@ -47,7 +47,7 @@ export async function discoverTools() {
   const results = await Promise.allSettled(
     connections.map(async conn => {
       try {
-       await mcpRequest(conn.url, 'initialize', {
+        await mcpRequest(conn.url, 'initialize', {
           protocolVersion: '2024-11-05',
           clientInfo: { name: 'k-srouter', version: '1.0.0' },
           capabilities: {}
@@ -85,6 +85,8 @@ export async function callTool(name, args, toolPool) {
   if (!tool) throw new Error(`Tool "${name}" tidak ditemukan di pool.`);
 
   const result = await mcpRequest(tool._serverUrl, 'tools/call', {
-    name, arguments: args }, tool._apiKey);
+    name,
+    arguments: args
+  }, tool._apiKey);
   return result.content?.map(c => c.text || '').join('\n') || JSON.stringify(result);
 }
