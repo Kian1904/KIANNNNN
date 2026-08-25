@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+
+// Global executable untuk KIANNNNN CLI
+// Letakkan di /data/data/com.termux/files/usr/bin/ agar bisa diakses dari mana saja
+import '/data/data/com.termux/files/home/KIANNNNN/index.js';
