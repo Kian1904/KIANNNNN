@@ -1,4 +1,4 @@
-import { planStep } from '/data/data/com.termux/files/home/KIANNNNN/lib/plan.js';
+import { planStep } from '../lib/plan.js';
 
 const base = { fileSnapshot: '-', agentMd: null, recentMemory: [], availableTools: [] };
 let calls = 0;
@@ -34,7 +34,7 @@ if (s3.action !== 'edit' || s3.target !== 'foo.txt' || s3.new_content !== 'hello
 console.log('T3 edit parse        : OK ->', s3.target, '|', JSON.stringify(s3.new_content));
 
 // T4: defaultModel Nvidia tanpa trailing quote
-const prov = await import('/data/data/com.termux/files/home/KIANNNNN/lib/providers.js');
+const prov = await import('../lib/providers.js');
 console.log('T4 providers import  : OK (module load bersih)');
 
 console.log('\nSEMUA TEST LULUS');

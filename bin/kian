@@ -2,4 +2,10 @@
 
 // Global executable untuk KIANNNNN CLI
 // Letakkan di /data/data/com.termux/files/usr/bin/ agar bisa diakses dari mana saja
-import '/data/data/com.termux/files/home/KIANNNNN/index.js';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+// Path relatif ke lokasi file bin/kian ini sendiri (bukan hardcode absolute path
+// device tertentu), jadi tetep jalan walau folder project di-rename/dipindah.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+await import(path.join(__dirname, '..', 'index.js'));

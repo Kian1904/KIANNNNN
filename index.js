@@ -93,8 +93,7 @@ async function askApproval(label, { forceAsk = false } = {}) {
 
 async function runCasual(instruction, history = []) {
   const historyText = history.length > 0 
-    ? 'Context percakapan sebelumnya:\n' + history.map(h => `${h.type}: ${h.content}`).join('\n') + '\n\n'
-    : '';
+    ? 'Context percakapan sebelumnya:\n' + history.map(h => `${h.role}: ${h.content}`).join('\n') + '\n\n' : '';
     
   const CASUAL_SYSTEM = `Kamu asisten AI yang helpful dan natural. Jawab dengan santai dan langsung — tidak perlu format khusus, tidak perlu list kecuali memang relevan. Gunakan bahasa yang sama dengan user.${historyText ? `\n\n${historyText}` : ''}`;
   
@@ -614,7 +613,7 @@ async function chat() {
     dbg('Intent:', intent);
 
     if (intent === 'casual') {
-      const response = await runCasual(instruction);
+      const response = await runCasual(instruction, getConversation(threadId, 10));
       // Log ke conversation DB
       logStep({ threadId, role: 'user', content: instruction });
       logStep({ threadId, role: 'assistant', content: response });
