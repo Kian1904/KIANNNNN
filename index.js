@@ -14,7 +14,6 @@ import { readFileSafe, listDirSafe, loadAgentMd } from './lib/utils/fs.js';
 import { handleModel } from './lib/commands/model.js';
 import { handleUsage } from './lib/commands/usage.js';
 import { handleConnect } from './lib/commands/connect.js';
-import { AGENT_CONSTITUTION } from '../agent_constitution.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG]', ...args); };
