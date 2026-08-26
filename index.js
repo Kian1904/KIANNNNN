@@ -399,7 +399,7 @@ async function chat() {
   
   // Create new conversation thread for this session
   const { createThread, logStep, getConversation } = await import('./lib/db.js');
-  const threadId = createThread();
+  let threadId = createThread();
   print('info', `Thread #${threadId} dibuat untuk sesi ini.`);
 
   // Show initial system message
