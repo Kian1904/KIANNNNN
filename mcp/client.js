@@ -10,7 +10,7 @@
  * @property {string} _serverUrl    - URL server asalnya
  */
 
-import { getActiveConnections, updateTools } from './registry.js';
+import { getActiveConnections, getConnection, updateTools } from './registry.js';
 
 const TIMEOUT_MS = 15000;
 
@@ -92,7 +92,6 @@ export async function discoverTools() {
           ...t,
           _serverName: conn.name,
           _serverUrl: conn.url,
-          _apiKey: conn.apiKey
         }));
         updateTools(conn.name, tools);
         return tools;
@@ -119,9 +118,12 @@ export async function callTool(name, args, toolPool) {
   const tool = toolPool.find(t => t.name === name);
   if (!tool) throw new Error(`Tool "${name}" tidak ditemukan di pool.`);
 
+  const conn = getConnection(tool._serverName);
+  const apiKey = conn?.apiKey || null;
+
   const result = await mcpRequest(tool._serverUrl, 'tools/call', {
     name,
     arguments: args
-  }, tool._apiKey);
+  }, apiKey);
   return result.content?.map(c => c.text || '').join('\n') || JSON.stringify(result);
 }
