@@ -121,6 +121,12 @@ export async function handleAuth(arg, ask) {
   }
 
   // Unknown /auth subcommand
-  print('warn', `Subcommand tidak dikenal: "${trimmed}"`);
-  print('info', 'Subcommand yang tersedia: add, remove, use, key');
+  const knownSubs = ['add', 'remove', 'use', 'key'];
+  if (knownSubs.includes(trimmed)) {
+    print('warn', `Subcommand "${trimmed}" butuh argumen tambahan.`);
+    print('info', `Format: /auth ${trimmed} <argumen>`);
+  } else {
+    print('warn', `Subcommand tidak dikenal: "${trimmed}"`);
+    print('info', 'Subcommand yang tersedia: add, remove, use, key');
+  }
 }
