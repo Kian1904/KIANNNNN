@@ -20,6 +20,11 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP plugin syst
   Nvidia (Laguna) → Mistral → Groq. HuggingFace dihapus (kredit habis).
   `/model <key>` untuk switch primary. `_primaryKey` di providers.js mengatur
   urutan cascade tanpa ganti code. Model names di `.env`, bukan hardcode.
+  
+  **BARU — Provider Registry (2026-08-28):** Provider config sekarang disimpan
+  di `~/.config/k-srouter/settings.json` (JSON array), dikelola via command `/auth`
+  (add/remove/use/key). API keys plaintext dengan `chmod 600`. Atomic write
+  menggunakan `.tmp` file. `src/providers.js` membaca dari registry secara dinamis.
 
 - **Memory architecture — 4 layer, semua IMPLEMENTED:**
   1. Instructions — `AGENT.md` di root, inject ke system prompt tiap task
@@ -36,20 +41,21 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP plugin syst
 
 - **Chat interface (REPL):** `node index.js` atau `node index.js --debug`.
   Commands: `/exit`, `/rollback [filepath]`, `/model [key|list]`, `/usage`,
-  `/connect` (MCP plugin manager — IN PROGRESS, lihat M10).
+  `/connect` (MCP plugin manager — IN PROGRESS, lihat M10), `/auth` (provider
+  manager — DONE, lihat di atas).
 
 - **MCP architecture — IN PROGRESS (M10):**
   Plugin system berbasis registry JSON, bukan hardcode URL. Struktur folder:
   ```
   mcp/
   ├── registry.js   ✅ DONE — load/save connections.json, CRUD operations
-  ├── client.js     ⬜ TODO — connect ke server, discover tools, call tools
+  ├── client.js     ✅ DONE — multi-server client, replace lib/mcp.js
   └── catalog/
-      ├── index.js  ⬜ TODO — known connectors catalog (K's Tools, dll)
-      └── ktools.js ⬜ TODO — K's Tools connector (extracted dari lib/mcp.js)
+      ├── index.js  ⬜ TODO — known connectors catalog
+      └── ktools.js ⬜ TODO — K's Tools connector
   ```
   `mcp/registry.js` sudah selesai dan siap dipakai. Langkah berikutnya:
-  buat `mcp/client.js` yang replace `lib/mcp.js`, lalu `mcp/catalog/`.
+  buat `mcp/catalog/` dan `/connect` command.
 
 - **Package safety (M8):** `lib/package-safety.js`. npm registry check,
   threshold: 404 → block, published < 30 hari → warn, downloads < 1000/week
@@ -60,7 +66,9 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP plugin syst
   ubah logic). Tidak pakai TypeScript sekarang karena overhead di Termux.
 
 ## Keamanan
-- API key/token TIDAK di-commit. Pakai `.env` via dotenv.
+- API key/token TIDAK di-commit. Pakai `.env` via dotenv (untuk default seeding)
+  atau di `settings.json` (untuk runtime provider config). `settings.json`
+  di-`chmod 600` dan disimpan di `~/.config/k-srouter/`.
 - `.gitignore` cover `.env`, `~/.krouter_data/` (sudah di luar repo), config pribadi.
 
 ## Batasan Lingkungan (Android/Termux)
@@ -74,33 +82,46 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP plugin syst
   `git status` + `git log` + baca SPEC ini dulu.
 - Kalau ada file baru yang dibuat: update SPEC ini juga.
 
-## Struktur Folder (current)
+## Struktur Folder (current — 2026-08-28 setelah restrukturisasi)
 ```
 KIANNNNN/
-├── mcp/                    ← MCP plugin system (BARU, in progress)
-│   └── registry.js         ← ✅ DONE
-|   └── client.js           < ✅️ DONE
-├── lib/
+├── src/                      ← Sumber utama (source of truth)
 │   ├── commands/
-│   │   ├── model.js      ✅ handleModel()
-│   │   └── usage.js      ✅ handleUsage(stats)
+│   │   ├── model.js         ✅ handleModel()
+│   │   ├── usage.js         ✅ handleUsage(stats)
+│   │   ├── connect.js       ✅ handleConnect() (MCP)
+│   │   └── auth.js          ✅ handleAuth() — BARU
 │   ├── prompts/
-│   │   └── system.js     ✅ SYSTEM_PROMPT
+│   │   └── system.js        ✅ SYSTEM_PROMPT
 │   ├── utils/
-│   │   └── fs.js         ✅ readFileSafe, listDirSafe, loadAgentMd, isSafePath (security)
-|
-│   ├─ bash.js
-│   ├── db.js
+│   │   └── fs.js            ✅ readFileSafe, listDirSafe, loadAgentMd, isSafePath (security)
+│   ├── run-casual.js        ✅ runCasual() — di-extract dari index.js
+│   ├── run-task.js          ✅ runTask() — ReAct loop, M12 MAX_LOOPS via env
+│   ├── repl.js              ✅ REPL loop & command router
+│   ├── providers.js         ✅ dynamic cascade dari settings.json
+│   ├── providers-registry.js ✅ load/save settings.json, atomic write, chmod 600
+│   ├── db.js                ✅ SQLite
 │   ├── diff.js
 │   ├── distill.js
 │   ├── intent.js
-│   ├── mcp.js              ✅️ > sudah di-replace oleh mcp/client.js
 │   ├── package-safety.js
 │   ├── plan.js
-│   ├── providers.js
-│   └── ui.js
+│   ├── search.js            ✅ web search (Serper→Tavily)
+│   └── ui.js                ✅ TUI formatting
+├── lib/                      ← Salinan dari src/ (backward compatibility, nanti dihapus)
+│   ├── commands/...
+│   ├── prompts/...
+│   ├── utils/...
+│   └── ... (salinan semua file src/)
+├── mcp/                      ← MCP plugin system
+│   ├── registry.js          ✅ DONE
+│   ├── client.js            ✅ DONE
+│   └── catalog/             ⬜ TODO
+├── tests/                    ← Test files
+├── bin/
+│   └── kian                 ✅ executable
 ├── AGENT.md
-├── index.js
+├── index.js                 ✅ entry point (ramping, < 30 baris)
 ├── package.json
 └── SPEC.md
 ```
@@ -122,70 +143,63 @@ KIANNNNN/
            ACTION: chat untuk casual reply tanpa step ceremony
 - [ ] **M10 — MCP Plugin System (IN PROGRESS)**
   - [x] `mcp/registry.js` — JSON-based plugin registry, CRUD, JSDoc typed [DONE]
-  - [x] `mcp/client.js` — multi-server client, replace lib/mcp.js [DONE] (multi-server, parallel discovery, callTools butuh toolPool param)
+  - [x] `mcp/client.js` — multi-server client, replace lib/mcp.js [DONE]
   - [ ] `mcp/catalog/index.js` — known connectors catalog
   - [ ] `mcp/catalog/ktools.js` — K's Tools connector
   - [ ] `/connect` command di index.js — dashboard plugin manager
   - [x] Update index.js imports: dari lib/mcp.js → mcp/client.js [DONE]
-  - [ ] Delete lib/mcp.js setelah catalog selesai (actually udah delete lib/mcp, tapi untuk mcp catalog belum)
+  - [ ] Delete lib/mcp.js setelah catalog selesai
 - [ ] **M11 — Web Search (ACTION: web_search)**
   - Cascade: Serper → Tavily
   - Hasil mentah tidak ditampilkan ke user
   - Agent reasoning dari hasil, output ke history
   - User lihat reasoning + sumber
-  - File baru: `lib/search.js`
-- [ ] **M12 — Extended MAX_LOOPS**
-  - `const MAX_LOOPS = parseInt(process.env.MAX_LOOPS) || 25`
+  - File: `src/search.js` (udah ada, perlu integrasi penuh)
+- [x] **M12 — Extended MAX_LOOPS** ✅ DONE (2026-08-28)
+  - `const MAX_LOOPS = parseInt(process.env.MAX_LOOPS) || 25` di `src/run-task.js`
   - Set di `.env`: MAX_LOOPS=25
 
-## Provider Cascade (current)
+## Provider Cascade (default seed, di settings.json)
 
 | Urutan | Key | Provider | Model default |
 |--------|-----|----------|---------------|
-| 1 | xkiro-coder | xKiro | qwen/qwen3-coder-plus |
+| 1 | xkiro-coder | xKiro | qwen/qwen3-coder-plus:free |
 | 2 | gemini | Google | gemini-3.1-flash-lite |
 | 3 | xkiro | xKiro | deepseek/deepseek-v4-pro |
 | 4 | openrouter | OpenRouter | nvidia/nemotron-3-ultra-550b-a55b:free |
 | 5 | nvidia | Nvidia NIM | poolside/laguna-xs-2.1 |
 | 6 | mistral | Mistral | mistral-small-latest |
-| 7 | groq | Groq (last resort) | qwen/qwen3.6-27b |
+| 7 | groq | Groq (last resort) | qwen/qwen3.8-27b |
 
 ## NEXT SESSION START POINT
 **Baca ini dulu sebelum kerja apapun.**
 
-Step berikutnya: lib/commands/rollback.js (extract dari index.js chat() loop),
-lalu update SPEC struktur folder, lalu lanjut M10 catalog/ dan /connect.
+Restrukturisasi selesai (lib/ → src/, index.js dipecah, provider registry + /auth,
+M12). Sekarang lanjut ke:
 
-1. Buat `mcp/catalog/ktools.js` — extracted K's Tools connector:
-   ```js
-   export default {
-     name: "K's Tools",
-     url: process.env.MCP_SERVER_URL,
-     description: "Summarize dan tools belajar"
-   }
-   ```
+1. **M10 — MCP Plugin System:**
+   - Buat `mcp/catalog/ktools.js` — extracted K's Tools connector
+   - Buat `mcp/catalog/index.js` — known connectors catalog
+   - Implementasikan `/connect` command di `src/commands/connect.js` (atau di repl.js)
+   - Test dan hapus `lib/mcp.js` setelah catalog selesai
 
-2. Buat `mcp/catalog/index.js` — known connectors catalog:
-   ```js
-   import ktools from './ktools.js';
-   export const CATALOG = [ktools, /* tambah lainnya nanti */];
-   ```
+2. **M11 — Web Search:**
+   - Integrasikan `src/search.js` ke dalam `run-task.js` (ACTION: web_search sudah ada)
+   - Pastikan cascade Serper→Tavily berfungsi
+   - Hasil mentah tidak ditampilkan ke user (cuma sources), agent reasoning dari hasil
 
-2. Update `index.js`:
-   - Ganti `import { discoverTools, callTool } from './lib/mcp.js'`
-     menjadi `import { discoverTools, callTool } from './mcp/client.js'`
-   - Tambah `/connect` command handler yang:
-     - `/connect` → tampilkan active connectors + catalog
-     - `/connect add <url>` → tambah custom connector
-     - `/connect toggle <name>` → enable/disable
+3. **Cleanup:**
+   - Hapus folder `lib/` setelah dipastikan semua import mengarah ke `src/`
+   - Update semua referensi di `bin/kian` dan tests
 
-4. Setelah M10 done: lanjut M11 (web search) lalu M12 (MAX_LOOPS).
+4. **TUI (optional, prioritas lebih rendah):**
+   - Kalau sempat, buat TUI berbasis `blessed` atau `ink` untuk UX lebih baik.
 
 ## FINDING Terbuka
 
-**[OPEN] lib/mcp.js masih aktif dipakai:**
-Belum di-replace oleh mcp/client.js. Jangan hapus sampai mcp/client.js selesai
-dan ditest. Setelah selesai: hapus lib/mcp.js, update semua import.
+**[RESOLVED] lib/mcp.js masih aktif dipakai:**
+Sudah diganti dengan mcp/client.js, import di index.js sudah update. `lib/mcp.js`
+masih ada tapi tidak dipakai — akan dihapus setelah catalog selesai.
 
 **[OPEN] Diff tidak akurat untuk file besar:**
 lib/diff.js pakai parallel line comparison, bukan Myers diff.
@@ -193,21 +207,14 @@ lib/diff.js pakai parallel line comparison, bukan Myers diff.
 **[OPEN] Snapshot untuk file baru:**
 File baru tidak punya snapshot — rollback tidak tersedia.
 
-**[RESOLVED] Agent terlalu banyak loop untuk task sederhana (mcp_call):**
-Agent sebelumnya loop hingga 10x setelah mcp_call karena LLM menganggap perlu "review" hasil.
-Fix: tiga lapis — (1) perkuat SYSTEM_PROMPT di lib/plan.js dengan instruksi tegas: "JANGAN melakukan langkah lain setelah mcp_call kecuali user meminta. Anggap task selesai — pilih ACTION: done."; (2) tambah aturan di AGENT.md; (3) auto-done di index.js: setelah mcp_call, jika history hanya satu langkah dan instruksi tidak mengandung kata lanjutan (lanjut, terus, setelah, kemudian, lalu, selanjutnya), langsung return. Dengan ini, task mcp_call sederhana selesai dalam 1 loop.
-
-**[RESOLVED] MCP result bloat context window:**
-Hasil mcp_call panjang masuk history → kirim ulang ke LLM di langkah berikutnya.
-Fix: truncate mcp_call result di buildHistoryText (lib/plan.js) ke max 500 karakter.
-Tambahan: userPrompt di planStep sekarang punya reminder untuk langsung done setelah mcp_call.
-
-**[RESOLVED] Typosquatting pkg (APT/Termux):**
-Proteksi untuk pkg install cuma exist-check + known-bad list — jauh lebih lemah dari npm.
-Fix: implementasi kombinasi di lib/package-safety.js: apt-cache search + popularitas (hardcoded list) + similarity (Levenshtein distance) dengan threshold <= 2. Auto-block hanya untuk known-bad; sisanya warning. Tested dengan gti (git typo) dan pytnon (python typo) menunjukkan warning.
-
-**[RESOLVED] Agent bisa baca .env dan file sensitif:**
-isSafePath() di lib/utils/fs.js -- BLOCKED_TARGETS list applied ke readFileSafe + listDirSafe.
-
 **[RESOLVED] Agent loop 10x untuk task mcp sederhana:**
 Auto-done setelah single mcp_call kalau tidak ada continue-words di instruksi.
+
+**[RESOLVED] Typosquatting pkg (APT/Termux):**
+Sudah diimplementasi di lib/package-safety.js dengan Levenshtein distance.
+
+**[RESOLVED] Agent bisa baca .env dan file sensitif:**
+isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + blocklist.
+
+**[RESOLVED] Provider config hardcode di providers.js:**
+Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.

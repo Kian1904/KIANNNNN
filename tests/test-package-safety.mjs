@@ -1,5 +1,5 @@
-import { checkPackageSafety } from '../lib/package-safety.js';
-import { runCommand } from '../lib/bash.js';
+import { checkPackageSafety } from '../src/package-safety.js';
+import { runCommand } from '../src/bash.js';
 
 async function testPackageSafety() {
   console.log('=== Testing package-safety ===\n');

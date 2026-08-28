@@ -1,4 +1,4 @@
-import { planStep } from '../lib/plan.js';
+import { planStep } from '../src/plan.js';
 
 const base = { fileSnapshot: '-', agentMd: null, recentMemory: [], availableTools: [] };
 let calls = 0;
