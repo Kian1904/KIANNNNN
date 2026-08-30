@@ -153,7 +153,7 @@ export function addProvider({ name, baseUrl, apiKey, model, active = true }) {
     name: name.trim().toLowerCase(),
     baseUrl: cleanUrl,
     apiKey: apiKey.trim(),
-    model: (model || "qwen/qwen3-coder-plus").trim(),
+    model: (model || "qwen/qwen3-coder-plus:free").trim(),
     active
   };
 
