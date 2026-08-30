@@ -1,0 +1,15 @@
+SPEC.md udah gue update dan commit (`53fa84c`). Sekarang isinya:
+
+- M13 (TUI interaktif) ditandai ✅ DONE
+- Struktur folder di-update ke 2026-08-30 — ada `src/tui.js`, catalog jadi ✅, test files disebutin
+- NEXT SESSION START POINT: udah ganti dari "lanjut M10/M11" ke **cleanup & stabilisasi** (hapus `lib/`, test, update README)
+- MCP architecture: status diubah dari IN PROGRESS ke DONE (M10)
+
+Semua milestone M0–M13 beres. Status commit: `main` ahead of `origin/main` by 2 commits, working tree clean.
+
+Siap lanjut ke cleanup `lib/` kapanpun.
+
+---
+
+## Summary Metadata
+**Update time**: 2026-08-30T06:52:18.219Z
