@@ -175,9 +175,9 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           const searchSummaries = history.filter(h => h.action === 'web_search').map(h => h.summary).join('\n\n---\n\n');
           print('done', `Task selesai (dipaksa, LLM tidak patuh instruksi done). Data yang terkumpul:\n\n${searchSummaries.slice(0, 1500)}`);
         }
-        blank();
-        return;
       }
+      blank();
+      return;
     }
       print('web_search', step.query);
       try {
