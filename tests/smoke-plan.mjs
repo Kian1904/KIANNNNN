@@ -34,7 +34,7 @@ if (s3.action !== 'edit' || s3.target !== 'foo.txt' || s3.new_content !== 'hello
 console.log('T3 edit parse        : OK ->', s3.target, '|', JSON.stringify(s3.new_content));
 
 // T4: defaultModel Nvidia tanpa trailing quote
-const prov = await import('../lib/providers.js');
+const prov = await import('../src/providers.js');
 console.log('T4 providers import  : OK (module load bersih)');
 
 console.log('\nSEMUA TEST LULUS');
