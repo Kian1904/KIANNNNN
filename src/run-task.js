@@ -158,27 +158,26 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       continue;
     }
 
-    // --- WEB_SEARCH ---
+// --- WEB_SEARCH ---
     if (step.action === 'web_search') {
       webSearchCount++;
       if (webSearchCount > 2) {
-        print('info', 'Batas 2x web_search tercapai - memaksa rangkuman dari data yang ada.');
-        const forcedInstruction = `${instruction}\n\n[SISTEM: Kamu sudah mencapao batas maksimal pencarian web. WAJIB ACTION: done sekarang. Tulis SUMMARY dari hasil search yang sudah ada di history dengan kata-katamu sendiri. DILARANG ACTION: web_search atau ACTION: mcp_call apapun di langkah inj.]`;
+        print('info', 'Batas 2x web_search tercapai — memaksa rangkuman dari data yang ada.');
+        const forcedInstruction = `${instruction}\n\n[SISTEM: Kamu sudah mencapai batas maksimal pencarian web. WAJIB ACTION: done sekarang. Tulis SUMMARY dari hasil search yang sudah ada di history dengan kata-katamu sendiri. DILARANG ACTION: web_search atau ACTION: mcp_call apapun di langkah ini.]`;
         const forcedStep = await planStep(askWithFallback, { instruction: forcedInstruction, fileSnapshot, history, agentMd, recentMemory, availableTools, webSearchCount });
         if (forcedStep.action === 'done') {
           print('done', forcedStep.summary);
           if (threadId) {
             logStep({ threadId, role: 'assistant', content: forcedStep.summary, actionType: 'done', reasoning: forcedStep.reasoning });
           }
-        }
-        else {
+        } else {
           const searchSummaries = history.filter(h => h.action === 'web_search').map(h => h.summary).join('\n\n---\n\n');
           print('done', `Task selesai (dipaksa, LLM tidak patuh instruksi done). Data yang terkumpul:\n\n${searchSummaries.slice(0, 1500)}`);
         }
+        blank();
+        return;
       }
-      blank();
-      return;
-    }
+
       print('web_search', step.query);
       try {
         const { provider, results } = await searchWeb(step.query);
@@ -196,44 +195,6 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         if (threadId) {
           logStep({ threadId, role: 'assistant', content: `Search error: ${step.query}\nError: ${err.message}`, actionType: 'web_search', detail: { query: step.query, error: err.message }, reasoning: step.reasoning });
         }
-      }
-      continue;
-    }
-
-    // --- EDIT ---
-    if (step.action === 'edit') {
-      const current = readFileSafe(step.target);
-      print('diff', step.target);
-      printBlock(showDiff(current === '(file tidak ditemukan)' || current.startsWith('(ACCESS DENIED') ? '' : current, step.new_content));
-      sep();
-
-      const editApproval = await askApproval('edit');
-      if (threadId) {
-        logStep({ threadId, role: 'assistant', content: `Edit requested: ${step.target}`, actionType: 'edit', detail: { target: step.target, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved: editApproval.approved });
-      } else {
-        logStep({ task: instruction, actionType: 'edit', detail: { target: step.target, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved: editApproval.approved });
-      }
-
-      if (!editApproval.approved) {
-        print('rejected', 'Langkah dibatalkan, task dihentikan.');
-        return;
-      }
-      if (editApproval.condition) {
-        history.push({ action: 'user_condition', condition: editApproval.condition });
-      }
-
-      const existingContent = readFileSafe(step.target);
-      if (existingContent !== '(file tidak ditemukan)' && !existingContent.startsWith('(ACCESS DENIED')) {
-        saveSnapshot({ filepath: step.target, content: existingContent });
-        print('snapshot', `${step.target} disimpan.`);
-      }
-
-      fs.writeFileSync(step.target, step.new_content, 'utf8');
-      print('edit_ok', `${step.target} diupdate.`);
-      lastTarget = step.target;
-      history.push({ action: 'edit', target: step.target, approved: true });
-      if (threadId) {
-        logStep({ threadId, role: 'assistant', content: `File edited: ${step.target}`, actionType: 'edit', detail: { target: step.target, applied: true }, reasoning: step.reasoning });
       }
       continue;
     }
