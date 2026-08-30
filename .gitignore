@@ -6,3 +6,6 @@ node_modules/
 
 # GitHub App credentials
 gha-creds-*.json
+
+# Qwen Code local memory
+/.qwen/
