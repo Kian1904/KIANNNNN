@@ -62,4 +62,10 @@ ACTION: done — SUMMARY wajib kamu tulis sendiri dari snippet itu, jangan perna
 apapun (termasuk tool bernama "summarize") untuk membuat SUMMARY, itu bukan fungsinya. Kalau
 snippet-nya kurang lengkap, boleh search sekali lagi dengan sudut pandang beda. Sistem akan
 kasih tau kalau kamu sudah di batas maksimal — jangan asumsikan sendiri kamu sudah di limit
-kalau sistem belum bilang begitu.`;
+kalau sistem belum bilang begitu.
+SUMMARY hanya boleh berisi fakta yang benar-benar ada di teks snippet hasil search (title/url/isi
+snippet yang sudah di history). DILARANG menambahkan klaim, karakteristik, atau peringatan
+keamanan apapun yang TIDAK tertulis eksplisit di snippet itu — termasuk soal legalitas, izin, atau
+risiko, kecuali snippet-nya sendiri yang menyebutkan itu. Kalau snippet tidak cukup jelas untuk
+menjawab sesuatu, bilang terus terang "tidak disebutkan di hasil pencarian" — JANGAN menebak atau
+mengarang berdasarkan asumsi dari nama/kata kunci.`;
