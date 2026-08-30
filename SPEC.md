@@ -141,20 +141,21 @@ KIANNNNN/
 - [x] M9 — TUI formatting (lib/ui.js), /model switch, /usage stats,
            intent classifier casual/task/hybrid (lib/intent.js),
            ACTION: chat untuk casual reply tanpa step ceremony
-- [ ] **M10 — MCP Plugin System (IN PROGRESS)**
-  - [x] `mcp/registry.js` — JSON-based plugin registry, CRUD, JSDoc typed [DONE]
-  - [x] `mcp/client.js` — multi-server client, replace lib/mcp.js [DONE]
-  - [ ] `mcp/catalog/index.js` — known connectors catalog
-  - [ ] `mcp/catalog/ktools.js` — K's Tools connector
-  - [ ] `/connect` command di index.js — dashboard plugin manager
-  - [x] Update index.js imports: dari lib/mcp.js → mcp/client.js [DONE]
-  - [ ] Delete lib/mcp.js setelah catalog selesai
-- [ ] **M11 — Web Search (ACTION: web_search)**
+- [x] **M10 — MCP Plugin System** ✅ DONE (2026-08-28)
+  - [x] `mcp/registry.js` — JSON-based plugin registry, CRUD, JSDoc typed
+  - [x] `mcp/client.js` — multi-server client, replace lib/mcp.js
+  - [x] `mcp/catalog/index.js` — known connectors catalog
+  - [x] `mcp/catalog/ktools.js` — K's Tools connector
+  - [x] `/connect` command di `src/commands/connect.js` — dashboard plugin manager
+  - [x] Update index.js imports: dari lib/mcp.js → mcp/client.js
+  - [ ] Delete lib/mcp.js setelah catalog selesai (pending cleanup)
+- [x] **M11 — Web Search (ACTION: web_search)** ✅ DONE (2026-08-28, with fix 2026-08-30)
   - Cascade: Serper → Tavily
   - Hasil mentah tidak ditampilkan ke user
   - Agent reasoning dari hasil, output ke history
   - User lihat reasoning + sumber
-  - File: `src/search.js` (udah ada, perlu integrasi penuh)
+  - File: `src/search.js` terintegrasi penuh
+  - **Fix loop 2026-08-30:** Tambah `webSearchCount` counter, max 2 search per task, guard programmatic + prompt guidance
 - [x] **M12 — Extended MAX_LOOPS** ✅ DONE (2026-08-28)
   - `const MAX_LOOPS = parseInt(process.env.MAX_LOOPS) || 25` di `src/run-task.js`
   - Set di `.env`: MAX_LOOPS=25
