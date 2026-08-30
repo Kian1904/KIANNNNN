@@ -157,6 +157,11 @@ KIANNNNN/
   - File: `src/search.js` terintegrasi penuh
   - **Fix loop 2026-08-30:** Tambah `webSearchCount` counter, max 2 search per task, guard programmatic + prompt guidance
 - [x] **M12 — Extended MAX_LOOPS** ✅ DONE (2026-08-28)
+\n- [x] **M13 — Interactive TUI** ✅ DONE (2026-08-30)
+  - `src/tui.js` — chat box ala Agent CLI dengan animasi typing, loading spinner, progress bar
+  - Integrasi dengan `src/repl.js` via `import * as tui`
+  - Global keyword activation (opsional, belum diaktifkan)
+  - Semua output chat pakai `tui.agentChatBox()` bukan `printUserMessage`/`printAssistantMessage`
   - `const MAX_LOOPS = parseInt(process.env.MAX_LOOPS) || 25` di `src/run-task.js`
   - Set di `.env`: MAX_LOOPS=25
 
