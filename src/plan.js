@@ -40,7 +40,7 @@ function buildHistoryText(history) {
   }).join('\n');
 }
 
-export async function planStep(askFn, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools }) {
+export async function planStep(askFn, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools, webSearchCount }) {
   const systemPrompt = agentMd
     ? `${SYSTEM_PROMPT}\n\n## Project Instructions (AGENT.md)\n${agentMd}`
     : SYSTEM_PROMPT;
@@ -61,8 +61,11 @@ export async function planStep(askFn, { instruction, fileSnapshot, history, agen
       return line;
     }).join('\n')
   : null;
+  const searchLimitWarning = (webSearchCount && webSearchCount >= 2)
+    ? `\nPERINGATAN: Kamu sudah melakukan ${webSearchCount} kali web_search. Maksimal 2 kali. JANGAN pilih ACTION: web_search lagi. Pilih ACTION: done atau action lain.\n`
+    : '';
   const userPrompt = `Task: ${instruction}: ${toolsText ? `\nMCP Tools yang tersedia:\n${toolsText}\n` : ''}
-  
+
 
  Isi file saat ini (kalau relevan):
    ---
@@ -74,7 +77,7 @@ export async function planStep(askFn, { instruction, fileSnapshot, history, agen
 
 History langkah sebelumnya di task ini:
    ${buildHistoryText(history)}
-  
+${searchLimitWarning}
 Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
 
       dbg('userPrompt preview:', userPrompt.slice(0, 300) + '...');

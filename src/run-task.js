@@ -34,6 +34,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
   const history = [];
   let lastTarget = null;
   const recentMemory = getRecentDecisions(5);
+  let webSearchCount = 0;
 
   dbg('=== Task Start ===');
   dbg('Instruction:', instruction);
@@ -46,7 +47,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     dbg(`--- Loop ${i} ---`);
     dbg('fileSnapshot:', fileSnapshot.slice(0, 100) + (fileSnapshot.length > 100 ? '...' : ''));
 
-    const step = await planStep(askWithFallback, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools });
+    const step = await planStep(askWithFallback, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools, webSearchCount });
     
     if (trackProvider) trackProvider(fallbackState.lastProvider);
     if (trackAction) trackAction(step.action);
@@ -159,6 +160,15 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
     // --- WEB_SEARCH ---
     if (step.action === 'web_search') {
+      webSearchCount++;
+      if (webSearchCount > 2) {
+        print('stop', 'Maksimal 2 kali web_search per task. Mengakhiri task.');
+        if (threadId) {
+          logStep({ threadId, role: 'assistant', content: 'Task stopped: web_search limit reached.', actionType: 'stop', reasoning: 'Web search limit exceeded' });
+        }
+        blank();
+        return;
+      }
       print('web_search', step.query);
       try {
         const { provider, results } = await searchWeb(step.query);

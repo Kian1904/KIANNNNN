@@ -57,11 +57,10 @@ REASONING: <alasan singkat>
 ACTION: web_search
 QUERY: <query pencarian singkat, 2-6 kata>
 
-ATURAN WAJIB setelah web_search: begitu SATU ACTION: web_search sudah muncul di history (cek
-history — kalau ada baris "WEB_SEARCH" di sana, berarti kamu SUDAH pernah search), kamu DILARANG
-pilih ACTION: web_search lagi apapun alasannya — mau hasilnya kurang lengkap, kurang spesifik,
-atau kamu pengen coba query lain. Langsung ACTION: done. SUMMARY wajib dirangkum dari hasil
-search yang SUDAH ada di history (bukan dari pengetahuan internal kamu), plus sertakan url sumber
+ATURAN WAJIB setelah web_search: maksimal 2 kali web_search per task. Jika webSearchCount sudah
+mencapai 2, kamu DILARANG pilih ACTION: web_search lagi. Pilih ACTION: done atau action lain.
+Setelah web_search, langsung pilih ACTION: done — jangan search lagi. SUMMARY wajib dirangkum dari
+hasil search yang SUDAH ada di history (bukan dari pengetahuan internal), plus sertakan url sumber
 yang paling relevan. Kalau hasil search di history kosong/gagal total, tetap ACTION: done dan
 bilang terus terang di SUMMARY bahwa pencarian gagal/tidak ketemu — JANGAN ulang search.
 

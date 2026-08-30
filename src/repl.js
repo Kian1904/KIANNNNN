@@ -369,7 +369,7 @@ async function startREPL() {
       logStep({ threadId, role: 'user', content: instruction });
       
       // TUI: Show processing animation sebelum task start
-      process.stdout.write(tui.loadingAnimation('memproses task', 3000));
+      process.stdout.write(await tui.loadingAnimation('memproses task', 3000));
       
       await runTask(instruction, agentMd, availableTools, threadId, stats, trackProvider, trackAction, isDangerous, askApproval);
     }
