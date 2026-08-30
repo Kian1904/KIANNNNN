@@ -256,3 +256,4 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     logStep({ threadId, role: 'assistant', content: `Reached loop limit of ${MAX_LOOPS} without completing task.`, actionType: 'stop', reasoning: 'Loop limit reached' });
   }
   blank();
+} 
