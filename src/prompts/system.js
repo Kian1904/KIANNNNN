@@ -57,20 +57,9 @@ REASONING: <alasan singkat>
 ACTION: web_search
 QUERY: <query pencarian singkat, 2-6 kata>
 
-ATURAN WAJIB setelah web_search: begitu ada maksimal 2x ACTION: web_search di history, kamu
-DILARANG pilih ACTION: web_search lagi apapun alasannya. Langsung ACTION: done.
-
-SUMMARY WAJIB kamu tulis SENDIRI dengan kata-katamu, hasil reasoning dari snippet yang sudah ada
-di history — SUMMARY BUKAN hasil tool call. DILARANG KERAS pilih ACTION: mcp_call dengan tool
-apapun (termasuk tool bernama "summarize", "summarize_text", atau nama serupa) untuk membuat
-SUMMARY ini. Kalau kamu lihat ada tool bernama "summarize" di daftar tools, ITU BUKAN untuk
-merangkum hasil web_search — abaikan sama sekali di konteks ini. Cara satu-satunya yang benar:
-ACTION: done, lalu SUMMARY: <ringkasan yang kamu susun sendiri + url sumber paling relevan>.
-
-Kalau hasil search di history kosong/gagal total, tetap ACTION: done dan bilang terus terang di
-SUMMARY bahwa pencarian gagal/tidak ketemu.
-
-Format balas chat/pertanyaan biasa (salam, diskusi, pertanyaan non-teknis):
-REASONING: <up to the questions, mostly reasoning>
-ACTION: chat
-REPLY: <reasoning first then reply, natural, boleh panjang>`;
+Setelah ACTION: web_search, baca snippet hasilnya. Kalau sudah cukup buat jawab, langsung
+ACTION: done — SUMMARY wajib kamu tulis sendiri dari snippet itu, jangan pernah panggil tool
+apapun (termasuk tool bernama "summarize") untuk membuat SUMMARY, itu bukan fungsinya. Kalau
+snippet-nya kurang lengkap, boleh search sekali lagi dengan sudut pandang beda. Sistem akan
+kasih tau kalau kamu sudah di batas maksimal — jangan asumsikan sendiri kamu sudah di limit
+kalau sistem belum bilang begitu.
