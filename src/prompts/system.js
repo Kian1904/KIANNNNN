@@ -57,12 +57,18 @@ REASONING: <alasan singkat>
 ACTION: web_search
 QUERY: <query pencarian singkat, 2-6 kata>
 
-ATURAN WAJIB setelah web_search: maksimal 2 kali web_search per task. Jika webSearchCount sudah
-mencapai 2, kamu DILARANG pilih ACTION: web_search lagi. Pilih ACTION: done atau action lain.
-Setelah web_search, langsung pilih ACTION: done — jangan search lagi. SUMMARY wajib dirangkum dari
-hasil search yang SUDAH ada di history (bukan dari pengetahuan internal), plus sertakan url sumber
-yang paling relevan. Kalau hasil search di history kosong/gagal total, tetap ACTION: done dan
-bilang terus terang di SUMMARY bahwa pencarian gagal/tidak ketemu — JANGAN ulang search.
+ATURAN WAJIB setelah web_search: begitu ada maksimal 2x ACTION: web_search di history, kamu
+DILARANG pilih ACTION: web_search lagi apapun alasannya. Langsung ACTION: done.
+
+SUMMARY WAJIB kamu tulis SENDIRI dengan kata-katamu, hasil reasoning dari snippet yang sudah ada
+di history — SUMMARY BUKAN hasil tool call. DILARANG KERAS pilih ACTION: mcp_call dengan tool
+apapun (termasuk tool bernama "summarize", "summarize_text", atau nama serupa) untuk membuat
+SUMMARY ini. Kalau kamu lihat ada tool bernama "summarize" di daftar tools, ITU BUKAN untuk
+merangkum hasil web_search — abaikan sama sekali di konteks ini. Cara satu-satunya yang benar:
+ACTION: done, lalu SUMMARY: <ringkasan yang kamu susun sendiri + url sumber paling relevan>.
+
+Kalau hasil search di history kosong/gagal total, tetap ACTION: done dan bilang terus terang di
+SUMMARY bahwa pencarian gagal/tidak ketemu.
 
 Format balas chat/pertanyaan biasa (salam, diskusi, pertanyaan non-teknis):
 REASONING: <up to the questions, mostly reasoning>

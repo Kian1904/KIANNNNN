@@ -162,13 +162,23 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     if (step.action === 'web_search') {
       webSearchCount++;
       if (webSearchCount > 2) {
-        print('stop', 'Maksimal 2 kali web_search per task. Mengakhiri task.');
-        if (threadId) {
-          logStep({ threadId, role: 'assistant', content: 'Task stopped: web_search limit reached.', actionType: 'stop', reasoning: 'Web search limit exceeded' });
+        print('info', 'Batas 2x web_search tercapai - memaksa rangkuman dari data yang ada.');
+        const forcedInstruction = `${instruction}\n\n[SISTEM: Kamu sudah mencapao batas maksimal pencarian web. WAJIB ACTION: done sekarang. Tulis SUMMARY dari hasil search yang sudah ada di history dengan kata-katamu sendiri. DILARANG ACTION: web_search atau ACTION: mcp_call apapun di langkah inj.]`;
+        const forcedStep = await planStep(askWithFallback, { instruction: forcedInstruction, fileSnapshot, history, agentMd, recentMemory, availableTools, webSearchCount });
+        if (forcedStep.action === 'done') {
+          print('done', forcedStep.summary);
+          if (threadId) {
+            logStep({ threadId, role: 'assistant', content: forcedStep.summary, actionType: 'done', reasoning: forcedStep.reasoning });
+          }
+        }
+        else {
+          const searchSummaries = history.filter(h => h.action === 'web_search').map(h => h.summary).join('\n\n---\n\n');
+          print('done', `Task selesai (dipaksa, LLM tidak patuh instruksi done). Data yang terkumpul:\n\n${searchSummaries.slice(0, 1500)}`);
         }
         blank();
         return;
       }
+    }
       print('web_search', step.query);
       try {
         const { provider, results } = await searchWeb(step.query);
