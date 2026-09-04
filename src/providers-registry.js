@@ -91,9 +91,37 @@ export function loadProviders() {
   try {
     const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed;
-    // Jika format settings salah, kembalikan default
-    return DEFAULT_PROVIDERS;
+    if (Array.isArray(parsed)) return DEFAULT_PROVIDERS;
+   
+    // Reconciliation: kalau ada provider yang apiKey-nya kosong di settings.json
+    // TAPI ada env var yang cocok, backfill dari .env — biar .env tetap jadi
+    // jaring pengaman seterusnya, bukan cuma dipake sekali doang pas file lahir.
+    // Nama env var diturunin otomatis dari nama provider: "nvidia" -> NVIDIA_API_KEY.
+    // Tanda hubung "-" diganti "_". Kalau nanti nambah provider baru, otomatis
+    // kebaca tanpa perlu tambah mapping manual di sini.
+    const toEnvName = (providerName) =>
+     providerName.toUpperCase().replace(/-/g, '_') + '_API_KEY';
+     
+     // Pengecualian: "xkiro-coder" numpang 1 API key yang sama dengan "xkiro"
+    // (1 akun xKiro dipakai buat 2 model berbeda), bukan XKIRO_CODER_API_KEY.
+     const envNameOverride = { 'xkiro-coder': 'XKIRO_API_KEY' };
+     
+     const getEnvKey = (providerName) => {
+       const envName = envNameOverride[providerName] || toEnvName(providerName);
+       return process.env[envName];
+     }
+     
+    let healed = false;
+    
+    for (const p of parsed) {
+      if (!p.apiKey && getEnvKey[p.name]) {
+        p.apiKey = getEnvKey[p.name];
+        healed = true;
+      }
+    }
+    if (healed) saveProviders(parsed); 
+    
+    return parsed;
   } catch {
     return DEFAULT_PROVIDERS;
   }
