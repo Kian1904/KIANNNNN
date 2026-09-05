@@ -1,5 +1,5 @@
 // src/providers-registry.js — Provider JSON registry with chmod 600 permission
-// Storage: ~/.config/k-srouter/settings.json
+// Storage: .setting.json
 // TS-ready: JSDoc typed
 
 import fs from 'fs';
@@ -8,7 +8,7 @@ import os from 'os';
 import { execSync } from 'child_process';
 
 const CONFIG_DIR = path.join(os.homedir(), '.settings.json', 'KIANNNNN');
-const SETTINGS_PATH = path.join(CONFIG_DIR, 'settings.json');
+const SETTINGS_PATH = path.join(CONFIG_DIR, '.settings.json');
 
 /**
  * @typedef {Object} ProviderConfig
