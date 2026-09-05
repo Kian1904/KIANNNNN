@@ -51,6 +51,7 @@ export async function handleAuth(arg, ask) {
     const parts = trimmed.slice(4).trim().split(/\s+/);
     if (parts.length < 3) {
       print('error', 'Format: /auth add <nama> <baseUrl> <apiKey> [model]');
+      print('info', 'Contoh: /auth add deepinfra https://api.deepinfra.com/v1 sk-abc123 meta-llama/Llama-3.3-70B');
       return;
     }
 
@@ -71,6 +72,7 @@ export async function handleAuth(arg, ask) {
     const name = trimmed.slice(7).trim();
     if (!name) {
       print('error', 'Format: /auth remove <nama>');
+      print('info', 'Contoh: /auth remove groq');
       return;
     }
 
@@ -88,6 +90,7 @@ export async function handleAuth(arg, ask) {
     const name = trimmed.slice(4).trim();
     if (!name) {
       print('error', 'Format: /auth use <nama>');
+      print('info', 'Contoh: /auth use gemini');
       return;
     }
 
