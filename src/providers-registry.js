@@ -7,7 +7,7 @@ import path from 'path';
 import os from 'os';
 import { execSync } from 'child_process';
 
-const CONFIG_DIR = path.join(os.homedir(), '.config', 'KIANNNNN');
+const CONFIG_DIR = path.join(os.homedir(), '.settings.json', 'KIANNNNN');
 const SETTINGS_PATH = path.join(CONFIG_DIR, 'settings.json');
 
 /**
