@@ -1,5 +1,5 @@
 // src/providers-registry.js — Provider JSON registry with chmod 600 permission
-// Storage: .setting.json
+// Storage: .settings.json
 // TS-ready: JSDoc typed
 
 import fs from 'fs';
@@ -93,7 +93,7 @@ export function loadProviders() {
   try {
     const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return DEFAULT_PROVIDERS;
+    if (!Array.isArray(parsed)) return DEFAULT_PROVIDERS;
    
     // Reconciliation: kalau ada provider yang apiKey-nya kosong di settings.json
     // TAPI ada env var yang cocok, backfill dari .env — biar .env tetap jadi
@@ -116,8 +116,8 @@ export function loadProviders() {
     let healed = false;
     
     for (const p of parsed) {
-      if (!p.apiKey && getEnvKey[p.name]) {
-        p.apiKey = getEnvKey[p.name];
+      if (!p.apiKey && getEnvKey(p.name)) {
+        p.apiKey = getEnvKey(p.name);
         healed = true;
       }
     }
