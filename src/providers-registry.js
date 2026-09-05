@@ -7,7 +7,7 @@ import path from 'path';
 import os from 'os';
 import { execSync } from 'child_process';
 
-const CONFIG_DIR = path.join(os.homedir(), '.config', 'k-srouter');
+const CONFIG_DIR = path.join(os.homedir(), '.config', 'KIANNNNN');
 const SETTINGS_PATH = path.join(CONFIG_DIR, 'settings.json');
 
 /**
