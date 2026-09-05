@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR = path.join(__dirname, '..'); // root repo (src/../ = root)
-const SETTINGS_PATH = path.join(CONFIG_DIR, 'settings.json');
+const SETTINGS_PATH = path.join(CONFIG_DIR, '.settings.json');
 
 /**
  * @typedef {Object} ProviderConfig
