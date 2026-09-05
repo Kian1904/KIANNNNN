@@ -9,3 +9,6 @@ gha-creds-*.json
 
 # Qwen Code local memory
 /.qwen/
+
+#config json
+.settings.json
