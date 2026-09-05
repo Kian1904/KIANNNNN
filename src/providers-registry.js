@@ -6,9 +6,11 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { execSync } from 'child_process';
+import { fileURLToPath } from 'url';
 
-const CONFIG_DIR = path.join(os.homedir(), '.settings.json', 'KIANNNNN');
-const SETTINGS_PATH = path.join(CONFIG_DIR, '.settings.json');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CONFIG_DIR = path.join(__dirname, '..'); // root repo (src/../ = root)
+const SETTINGS_PATH = path.join(CONFIG_DIR, 'settings.json');
 
 /**
  * @typedef {Object} ProviderConfig
