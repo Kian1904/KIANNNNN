@@ -85,47 +85,44 @@ export function loadProviders() {
   }
 
   if (!fs.existsSync(SETTINGS_PATH)) {
-    // Seed default providers
-    saveProviders(DEFAULT_PROVIDERS);
-    return DEFAULT_PROVIDERS;
+    const seeded = DEFAULT_PROVIDERS.map(p => ({ ...p }));
+    applyEnvOverrides(seeded);
+    return seeded;
   }
 
   try {
     const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return DEFAULT_PROVIDERS;
-   
-    // Reconciliation: kalau ada provider yang apiKey-nya kosong di settings.json
-    // TAPI ada env var yang cocok, backfill dari .env — biar .env tetap jadi
-    // jaring pengaman seterusnya, bukan cuma dipake sekali doang pas file lahir.
-    // Nama env var diturunin otomatis dari nama provider: "nvidia" -> NVIDIA_API_KEY.
-    // Tanda hubung "-" diganti "_". Kalau nanti nambah provider baru, otomatis
-    // kebaca tanpa perlu tambah mapping manual di sini.
-    const toEnvName = (providerName) =>
-     providerName.toUpperCase().replace(/-/g, '_') + '_API_KEY';
-     
-     // Pengecualian: "xkiro-coder" numpang 1 API key yang sama dengan "xkiro"
-    // (1 akun xKiro dipakai buat 2 model berbeda), bukan XKIRO_CODER_API_KEY.
-     const envNameOverride = { 'xkiro-coder': 'XKIRO_API_KEY' };
-     
-     const getEnvKey = (providerName) => {
-       const envName = envNameOverride[providerName] || toEnvName(providerName);
-       return process.env[envName];
-     }
-     
-    let healed = false;
-    
-    for (const p of parsed) {
-      if (!p.apiKey && getEnvKey(p.name)) {
-        p.apiKey = getEnvKey(p.name);
-        healed = true;
-      }
-    }
-    if (healed) saveProviders(parsed); 
-    
+
+    // ENV takes priority over settings.json. For each provider,
+    // if the corresponding env var exists (and is truthy), it overrides
+    // whatever is stored in settings.json. This makes .env the source of
+    // truth for API keys.
+    applyEnvOverrides(parsed);
     return parsed;
   } catch {
     return DEFAULT_PROVIDERS;
+  }
+}
+
+function applyEnvOverrides(providers) {
+  const toEnvName = (providerName) =>
+    providerName.toUpperCase().replace(/-/g, '_') + '_API_KEY';
+
+  const envNameOverride = { 'xkiro-coder': 'XKIRO_API_KEY' };
+
+  const getEnvKey = (providerName) => {
+    const envName = envNameOverride[providerName] || toEnvName(providerName);
+    return process.env[envName];
+  };
+
+  for (const p of providers) {
+    const envVal = getEnvKey(p.name);
+    if (envVal) {
+      p.apiKey = envVal;
+    }
+    // else keep whatever is in settings (could be empty)
   }
 }
 
