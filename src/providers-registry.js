@@ -41,7 +41,7 @@ const DEFAULT_PROVIDERS = [
     name: "xkiro",
     baseUrl: "https://api.xkiro.com/v1",
     apiKey: process.env.XKIRO_API_KEY || "",
-    model: process.env.XKIRO_MODEL || "qwen/qwen3.8-max:free,
+    model: process.env.XKIRO_MODEL || "qwen/qwen3.8-max:free",
     active: true
   },
   {
