@@ -34,14 +34,14 @@ const DEFAULT_PROVIDERS = [
     name: "gemini",
     baseUrl: "https://generativelanguage.googleapis.com",
     apiKey: process.env.GEMINI_API_KEY || "",
-    model: process.env.GEMINI_MODEL || "gemini-3.6-flash",
+    model: process.env.GEMINI_MODEL || "gemini-3.7-flash",
     active: true
   },
   {
     name: "xkiro",
     baseUrl: "https://api.xkiro.com/v1",
     apiKey: process.env.XKIRO_API_KEY || "",
-    model: process.env.XKIRO_MODEL || "deepseek/deepseek-v4-pro",
+    model: process.env.XKIRO_MODEL || "qwen/qwen3.8-max:free,
     active: true
   },
   {
