@@ -69,19 +69,8 @@ async function handleMessage(msg) {
       response = await runCasual(text, getConversation(threadId, 10));
       await sendMessage(chatId, response);
     } else {
-      // runTask sendiri yang nge-print ke console & logStep tiap langkah;
-      // di sini kita cuma perlu nangkep SUMMARY akhir buat dikirim ke Telegram.
-      // Asumsi runTask() menerima callback opsional — kalau belum ada,
-      // paling gampang: bungkus console.log sementara buat nangkep output.
-      const originalLog = console.log;
-      let captured = '';
-      console.log = (...args) => {
-        captured += args.join(' ') + '\n';
-        originalLog(...args);
-      };
-      await runTask(text, agentMd, availableTools, threadId);
-      console.log = originalLog;
-      await sendMessage(chatId, captured || 'Task selesai (tidak ada output ditangkap).');
+      const result = await runTask(text, agentMd, availableTools, threadId);
+      await sendMessage(chatId, result || 'Task selesai.');
     }
   } catch (err) {
     console.error('[telegram-bot] Error:', err);

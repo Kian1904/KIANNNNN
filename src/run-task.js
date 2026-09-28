@@ -63,7 +63,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         logStep({ task: instruction, actionType: 'done', detail: null, reasoning: step.reasoning, approved: true });
       }
       blank();
-      return;
+      return step.summary;
     }
 
     // --- CHAT (no step header, no ceremony) ---
@@ -153,7 +153,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           logStep({ task: instruction, actionType: 'done', detail: null, reasoning: 'Auto-done after mcp_call', approved: true });
         }
         blank();
-        return;
+        return 'Task selesai dengan mcp_call.';
       }
       continue;
     }
@@ -172,10 +172,12 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           }
         } else {
           const searchSummaries = history.filter(h => h.action === 'web_search').map(h => h.summary).join('\n\n---\n\n');
-          print('done', `Task selesai (dipaksa, LLM tidak patuh instruksi done). Data yang terkumpul:\n\n${searchSummaries.slice(0, 1500)}`);
+          const forcedSummary = `Task selesai (dipaksa, LLM tidak patuh instruksi done). Data yang terkumpul:\n\n${searchSummaries.slice(0, 1500)}`;
+          print('done', forcedSummary);
         }
         blank();
-        return;
+        return typeof forcedSummary !== 'undefined' ? forcedSummary : step.summary;
+      }
       }
 
       print('web_search', step.query);
@@ -217,7 +219,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
             logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, blocked: true }, reasoning: step.reasoning, approved: false });
           }
           print('rejected', 'Command dibatalkan, task dihentikan.');
-          return;
+          return 'Command dibatalkan, task dihentikan.';
         }
       }
 
@@ -231,7 +233,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved: false });
         }
         print('rejected', 'Command dibatalkan, task dihentikan.');
-        return;
+        return 'Command dibatalkan, task dihentikan.';
       }
       if (bashApproval.condition) {
         history.push({ action: 'user_condition', condition: bashApproval.condition });
@@ -256,4 +258,3 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     logStep({ threadId, role: 'assistant', content: `Reached loop limit of ${MAX_LOOPS} without completing task.`, actionType: 'stop', reasoning: 'Loop limit reached' });
   }
   blank();
-} 
