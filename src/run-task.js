@@ -251,10 +251,10 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       history.push({ action: 'bash', command: step.command, approved: true, result });
       continue;
     }
-  }
 
   print('stop', `Sampai batas ${MAX_LOOPS} langkah tanpa selesai.`);
   if (threadId) {
     logStep({ threadId, role: 'assistant', content: `Reached loop limit of ${MAX_LOOPS} without completing task.`, actionType: 'stop', reasoning: 'Loop limit reached' });
   }
   blank();
+}
