@@ -178,7 +178,6 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         blank();
         return typeof forcedSummary !== 'undefined' ? forcedSummary : step.summary;
       }
-      }
 
       print('web_search', step.query);
       try {
@@ -251,6 +250,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       history.push({ action: 'bash', command: step.command, approved: true, result });
       continue;
     }
+  }
 
   print('stop', `Sampai batas ${MAX_LOOPS} langkah tanpa selesai.`);
   if (threadId) {
