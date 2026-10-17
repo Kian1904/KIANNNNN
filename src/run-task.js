@@ -1,6 +1,7 @@
 // src/run-task.js — Handler loop agen otonom (ReAct)
 
 import fs from 'fs';
+import path from 'path';
 import { askWithFallback, fallbackState } from './providers.js';
 import { planStep } from './plan.js';
 import { showDiff } from './diff.js';
@@ -9,7 +10,7 @@ import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js
 import { callTool } from '../mcp/client.js';
 import { searchWeb } from './search.js';
 import { print, printBlock, sep, blank } from './ui.js';
-import { readFileSafe, listDirSafe } from './utils/fs.js';
+import { readFileSafe, listDirSafe, isSafePath } from './utils/fs.js';
 import { composeAgentPrompt, filterToolsForAgent } from './agents.js';
 
 // M12 — Extended MAX_LOOPS
@@ -228,6 +229,74 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         if (threadId) {
           logStep({ threadId, role: 'assistant', content: `Search error: ${step.query}\nError: ${err.message}`, actionType: 'web_search', detail: { query: step.query, error: err.message }, reasoning: step.reasoning });
         }
+      }
+      continue;
+    }
+
+    // --- EDIT ---
+    // Dikembalikan 2026-10-17 setelah commit bff2c6a (30 Agt) "fixed syntax error"
+    // menghapus seluruh handler ini — sejak itu ACTION: edit diparse tapi tak pernah
+    // dieksekusi dan saveSnapshot tak pernah terpanggil (rollback tanpa data).
+    if (step.action === 'edit') {
+      const target = step.target;
+
+      // Guard EKSPLISIT: readFileSafe menolak di jalur BACA, tapi tulis butuh cek
+      // sendiri — tanpa ini path terblokir (.env, .git, keluar root) tetap ke-tulis.
+      if (!isSafePath(target)) {
+        print('blocked', `Path diblokir karena keamanan: ${target}`);
+        history.push({ action: 'edit', target, approved: false });
+        if (threadId) {
+          logStep({ threadId, role: 'assistant', content: `Edit blocked (unsafe path): ${target}`, actionType: 'edit', detail: { target, blocked: true }, reasoning: step.reasoning, approved: false });
+        }
+        continue;
+      }
+
+      const existedBefore = fs.existsSync(target);
+      const oldContent = existedBefore ? fs.readFileSync(target, 'utf8') : '';
+
+      print('diff', target);
+      printBlock(showDiff(oldContent, step.new_content));
+      sep();
+
+      const editApproval = await askApproval('edit');
+      if (threadId) {
+        logStep({ threadId, role: 'assistant', content: `Edit requested: ${target}`, actionType: 'edit', detail: { target, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved: editApproval.approved });
+      }
+      if (!editApproval.approved) {
+        print('rejected', 'Langkah dibatalkan, task dihentikan.');
+        history.push({ action: 'edit', target, approved: false });
+        return 'Edit dibatalkan, task dihentikan.';
+      }
+      if (editApproval.condition) {
+        history.push({ action: 'user_condition', condition: editApproval.condition });
+      }
+
+      // Snapshot SEBELUM tulis — utk SEMUA file, termasuk file BARU
+      // (is_new_file=1 -> rollback = hapus file). Gagal snapshot = edit dibatalkan,
+      // jangan tulis tanpa jaring pengaman rollback.
+      try {
+        saveSnapshot({ filepath: target, content: oldContent, isNewFile: !existedBefore });
+        print('snapshot', existedBefore ? `${target} disimpan.` : `${target} (file baru) — rollback = hapus file.`);
+      } catch (err) {
+        print('error', `Gagal simpan snapshot: ${err.message} — edit DIBATALKAN.`);
+        return 'Edit dibatalkan: snapshot gagal disimpan.';
+      }
+
+      try {
+        const parent = path.dirname(target);
+        if (parent && !fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true });
+        fs.writeFileSync(target, step.new_content, 'utf8');
+      } catch (err) {
+        print('error', `Gagal menulis ${target}: ${err.message}`);
+        history.push({ action: 'edit', target, approved: true, error: err.message });
+        return `Edit gagal: ${err.message}`;
+      }
+
+      print('edit_ok', `${target} ${existedBefore ? 'diupdate' : 'dibuat'}.`);
+      lastTarget = target;
+      history.push({ action: 'edit', target, approved: true });
+      if (threadId) {
+        logStep({ threadId, role: 'assistant', content: `File edited: ${target}`, actionType: 'edit', detail: { target, applied: true, isNewFile: !existedBefore }, reasoning: step.reasoning });
       }
       continue;
     }

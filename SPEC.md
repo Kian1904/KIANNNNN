@@ -290,23 +290,40 @@ Yang bisa dikerjakan berikutnya:
 
 ## FINDING Terbuka
 
-**[OPEN] logStep crash kalau threadId=null (jalur mati):**
-`run-task.js` punya beberapa branch `else { logStep({task: instruction, ...}) }`
-dipanggil saat `threadId=null`. Tapi `db.js logStep({threadId, role, content, ...})`
-mendestructure jadi `undefined` → SQLite nolak bind param 1
-(`ERR_INVALID_ARG_TYPE`). Gak pernah kejadian di produksi karena REPL & Telegram
-selalu kirim threadId. Ditemukan oleh `tests/test-agent-integration.mjs`.
-Fix: buang branch `{task:...}` atau bikin `logStep` handle shape itu.
+**[RESOLVED 2026-10-17] logStep crash kalau threadId=null (jalur mati):**
+`logStep` di `db.js` kini DEFENSIF: shape legacy `{task, ...}` ternormalisasi
+(`content ?? task`, `role ?? 'assistant'`), dan `threadId=null` → **skip dgn
+return null** (thread_id NOT NULL + FK — tanpa thread gak ada tempat nyimpan),
+bukan crash `ERR_INVALID_ARG_TYPE`. Dites di `tests/test-bugfixes.mjs` (15 pass).
+
+**[RESOLVED 2026-10-17] Diff tidak akurat untuk file besar:**
+`src/diff.js` **di-rewrite penuh**: prefix/suffix trim + **Myers O(ND)** (trace
+backtrack ala Coglan, D-cap 500 + fallback block-replace utk sisa >3000 baris —
+memory-safe di HP) + output **unified hunk** `@@ -a,b +c,d @@` context 3 baris
+(gaya git; count=0 → start = baris sebelum). Insert/delete di tengah file besar
+kini TIDAK bikin seluruh baris bergeser ke-flag. Test: `tests/test-diff.mjs` (12 pass).
+
+**[RESOLVED 2026-10-17] Snapshot untuk file baru:**
+**Akar masalahnya bukan cuma file baru — seluruh handler `edit` HILANG** sejak
+commit `bff2c6a "fixed syntax error"` (30 Agt 2026) yang membuang 46 baris
+(incl. `saveSnapshot`): sejak itu `ACTION: edit` diparse `plan.js` tapi TIDAK
+PERNAH dieksekusi, dan snapshot gak pernah terisi untuk FILE MANA PUN (rollback
+tanpa data total, bukan cuma file baru). Fix:
+- Handler `edit` **dikembalikan** di `run-task.js` + diperkuat: guard
+  `isSafePath` EKSPLISIT sebelum tulis (versi lama menulis walau baca ditolak =
+  celah), mkdir parent, try/catch tulis, approval ditolak → catat `approved:false`.
+- Schema `snapshots` + kolom **`is_new_file`** (CREATE baru + ALTER migrasi DB
+  lama; baris lama DEFAULT 0 = benar utk semua snapshot historis). File baru →
+  snapshot `content=''`, `is_new_file=1`.
+- `/rollback` utk file baru = **konfirmasi HAPUS file** (balik ke kondisi
+  "belum dibuat"), bukan tulis kosong. Lihat cabang `snap.is_new_file` di `repl.js`.
+- Test: `tests/test-bugfixes.mjs` (15 pass: file baru/lama/blocked path/ditolak).
 
 **[RESOLVED] lib/mcp.js masih aktif dipakai:**
 Sudah diganti dengan mcp/client.js, import di index.js sudah update. `lib/mcp.js`
 masih ada tapi tidak dipakai — akan dihapus setelah catalog selesai.
 
-**[OPEN] Diff tidak akurat untuk file besar:**
-lib/diff.js pakai parallel line comparison, bukan Myers diff.
-
-**[OPEN] Snapshot untuk file baru:**
-File baru tidak punya snapshot — rollback tidak tersedia.
+**[RESOLVED 2026-10-17] Diff tidak akurat untuk file besar — lihat detail di RESOLVED Diff (rewrite Myers) di atas.**
 
 **[RESOLVED] Agent loop 10x untuk task mcp sederhana:**
 Auto-done setelah single mcp_call kalau tidak ada continue-words di instruksi.

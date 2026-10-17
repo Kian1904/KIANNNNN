@@ -181,6 +181,31 @@ async function startREPL() {
       }
       const { showDiff } = await import('./diff.js');
       const current = readFileSafe(filepath);
+
+      // Snapshot file BARU (is_new_file=1): rollback = balik ke kondisi sebelum
+      // file dibuat, yaitu file itu TIDAK ADA — hapus, jangan tulis kosong.
+      if (snap.is_new_file) {
+        if (current === '(file tidak ditemukan)') {
+          print('rollback', 'File sudah tidak ada — tidak ada yang perlu di-rollback.');
+          continue;
+        }
+        print('diff', `${filepath}  (file BARU — rollback = hapus file)`);
+        printBlock(showDiff(current, ''));
+        sep();
+        const delConfirm = await ask('  Hapus file ini untuk rollback? (y/n): ');
+        if (delConfirm.trim().toLowerCase() === 'y') {
+          try {
+            fs.unlinkSync(filepath);
+            print('rollback', `${filepath} dihapus (kondisi sebelum file dibuat).`);
+          } catch (err) {
+            print('error', `Gagal menghapus file: ${err.message}`);
+          }
+        } else {
+          print('rollback', 'Dibatalkan.');
+        }
+        continue;
+      }
+
       print('diff', `${filepath}  (current → snapshot ${snap.created_at})`);
       printBlock(showDiff(current === '(file tidak ditemukan)' || current.startsWith('(ACCESS DENIED') ? '' : current, snap.content));
       sep();

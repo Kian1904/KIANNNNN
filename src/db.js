@@ -103,9 +103,17 @@ function _open() {
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
         filepath   TEXT NOT NULL,
         content    TEXT NOT NULL,
+        is_new_file INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )
     `);
+  } else {
+    // Migrasi: kolom penanda file BARU (rollback = hapus file, bukan tulis kosong).
+    // Baris lama dpt DEFAULT 0 = "file lama sebelum edit" — benar utk semua snapshot historis.
+    const snapCols = _db.prepare("PRAGMA table_info(snapshots)").all();
+    if (!snapCols.some(c => c.name === 'is_new_file')) {
+      _db.exec("ALTER TABLE snapshots ADD COLUMN is_new_file INTEGER NOT NULL DEFAULT 0");
+    }
   }
 
   return _db;
@@ -134,7 +142,16 @@ export function updateThreadTitle(threadId, title) {
   `).run(title, threadId);
 }
 
-export function logStep({ threadId, role, content, actionType, detail, reasoning, approved }) {
+export function logStep({ threadId, role, content, task, actionType, detail, reasoning, approved }) {
+  // Normalisasi shape legacy: pemanggil lama kirim {task, actionType, ...}
+  // tanpa threadId/role/content — tanpa ini SQLite nolak bind (ERR_INVALID_ARG_TYPE),
+  // lihat FINDING "logStep crash kalau threadId=null".
+  const finalContent = content ?? task;
+  const finalRole = role ?? 'assistant';
+  // thread_id NOT NULL + FK ke conversation_threads: tanpa thread gak ada tempat
+  // nyimpan -> skip dgn damai (return null), jangan crash.
+  if (threadId == null || finalContent == null) return null;
+
   const db = _open();
 
   // Deteksi kolom "warisan" schema lama yang mungkin masih NOT NULL di tabel fisik lo
@@ -150,8 +167,8 @@ export function logStep({ threadId, role, content, actionType, detail, reasoning
       VALUES (@threadId, @role, @content, @actionType, @detail, @reasoning, @approved, @sessionId)
     `).run({
       threadId,
-      role,
-      content,
+      role: finalRole,
+      content: finalContent,
       actionType: actionType || null,
       detail: detail ? JSON.stringify(detail) : null,
       reasoning: reasoning || null,
@@ -165,8 +182,8 @@ export function logStep({ threadId, role, content, actionType, detail, reasoning
     VALUES (@threadId, @role, @content, @actionType, @detail, @reasoning, @approved)
   `).run({
     threadId,
-    role,
-    content,
+    role: finalRole,
+    content: finalContent,
     actionType: actionType || null,
     detail: detail ? JSON.stringify(detail) : null,
     reasoning: reasoning || null,
@@ -245,12 +262,12 @@ export function getRecentDecisions(limit = 5) {
   return db.prepare(`SELECT * FROM agent_decisions ORDER BY id DESC LIMIT ?`).all(limit);
 }
 
-export function saveSnapshot({ filepath, content }) {
+export function saveSnapshot({ filepath, content, isNewFile = false }) {
   const db = _open();
   return db.prepare(`
-   INSERT INTO snapshots (filepath, content)
-   VALUES (@filepath, @content)
-  `).run({ filepath, content });
+   INSERT INTO snapshots (filepath, content, is_new_file)
+   VALUES (@filepath, @content, @isNewFile)
+  `).run({ filepath, content: content ?? '', isNewFile: isNewFile ? 1 : 0 });
 }
 
 export function getLatestSnapshot(filepath) {

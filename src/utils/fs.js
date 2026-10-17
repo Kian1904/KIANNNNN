@@ -20,7 +20,7 @@ const BLOCKED_SEGMENTS = ['.git'];
  * @param {string} target
  * @returns {boolean}
  */
-function isSafePath(target) {
+export function isSafePath(target) {
   if (!target) return false;
 
   let resolved;
