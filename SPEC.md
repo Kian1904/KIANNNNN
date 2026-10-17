@@ -223,17 +223,32 @@ KIANNNNN/
   - Test: `tests/test-squad.mjs` (8: unit topologicalWaves + integration
     executePlan handoff via mock provider, backup/restore `.settings.json`).
 
-## Provider Cascade (default seed, di settings.json)
+## Provider Cascade (aktif di `.settings.json`, urutan = prioritas cascade)
 
-| Urutan | Key | Provider | Model default |
-|--------|-----|----------|---------------|
-| 1 | xkiro-coder | xKiro | qwen/qwen3-coder-plus:free |
-| 2 | gemini | Google | gemini-3.1-flash-lite |
-| 3 | xkiro | xKiro | deepseek/deepseek-v4-pro |
-| 4 | openrouter | OpenRouter | nvidia/nemotron-3-ultra-550b-a55b:free |
-| 5 | nvidia | Nvidia NIM | poolside/laguna-xs-2.1 |
-| 6 | mistral | Mistral | mistral-small-latest |
-| 7 | groq | Groq (last resort) | qwen/qwen3.8-27b |
+> **Dukungan no-auth (2026-10-17):** `makeOpenAICompatible` di `src/providers.js`
+> kini menerima `apiKey` kosong = provider anonim tanpa kirim header `Authorization`.
+> Juga fallback: kalau `message.content` kosong (model reasoning-first), ambil
+> `reasoning_content`/`reasoning` biar gak jadi "empty-200" yang bikin cascade mandek.
+> Backward compatible — provider ber-key tetap kirim `Bearer <key>`.
+
+| Urutan | Key | Model | Auth |
+|--------|-----|-------|------|
+| 1 | ovh-qwen | Qwen3.8-27B | **no-auth** (OVHcloud anonim) — PRIMARY |
+| 2 | ovh-llama | Meta-Llama-3_3-70B-Instruct | **no-auth** |
+| 3 | ovh-mistral | Mistral-Small-3.2-24B-Instruct-2506 | **no-auth** |
+| 4 | groq | qwen/qwen3.8-27b | key `gsk_...` (fallback terakhir) |
+
+> Provider `xkiro`, `openrouter`, `nvidia`, `mistral` sudah DIHAPUS dari cascade
+> (2026-10-17, permintaan user). Cascade kini 4 entry: 3 OVH no-auth + groq fallback.
+
+**Endpoint OVHcloud (no-auth, gratis, tanpa signup/card):**
+`https://oai.endpoints.kepler.ai.cloud.ovh.net/v1` — 22 model, rate limit ~2 RPM/IP/model.
+Model yang DIPAKI sudah diverifikasi balikin `content` (buang `gpt-oss-120b` yang sampah
+dan `Qwen3.5-397B-A17B` yang cuma reasoning). TERVERIFIKASI end-to-end lewat
+`askWithFallback`: ovh-qwen 2.2s, ovh-llama 0.36s, ovh-mistral 0.37s, groq+xkiro tetap jalan.
+
+**Catatan cascade lama (bukan default seed lagi — lihat tabel atas untuk kondisi aktual):**
+xkiro-coder, gemini, deepseek-v4-pro sempat ada tapi beberapa sudah gak aktif/dihapus.
 
 ## NEXT SESSION START POINT
 **Baca ini dulu sebelum kerja apapun.**

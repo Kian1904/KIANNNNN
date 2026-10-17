@@ -5,18 +5,19 @@ import { loadProviders } from './providers-registry.js';
 // ── Adapter: OpenAI-compatible provider ──────────────────────────────────────
 function makeOpenAICompatible({ name, baseUrl, apiKey, model }) {
   return async function ask(systemPrompt, userPrompt) {
-    if (!apiKey) throw new Error(`API key untuk ${name} kosong di settings.json`);
-
     const completeUrl = baseUrl.endsWith('/chat/completions')
       ? baseUrl
       : `${baseUrl}/chat/completions`;
 
+    // No-auth provider (apiKey kosong): JANGAN kirim header Authorization sama
+    // sekali — endpoint anonim (mis. OVHcloud) kadang nolak request yang bawa
+    // Bearer kosong/salah. Backward compatible: provider ber-key tetap dikirim.
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+
     const res = await fetch(completeUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
+      headers,
       body: JSON.stringify({
         model,
         messages: [
@@ -29,7 +30,16 @@ function makeOpenAICompatible({ name, baseUrl, apiKey, model }) {
 
     if (!res.ok) throw new Error(`${name} API error ${res.status}: ${await res.text()}`);
     const data = await res.json();
-    return data.choices[0].message.content;
+    const content = data?.choices?.[0]?.message?.content;
+    // Beberapa model (reasoning-first) balikin content kosong + naro hasil di
+    // reasoning/reasoning_content. Kalau kosong, ambil itu biar gak dianggap
+    // sukses kosong (jebakan empty-200 yang bikin cascade mandek).
+    if (content == null || content === '') {
+      const msg = data?.choices?.[0]?.message || {};
+      const alt = msg.reasoning_content || msg.reasoning || '';
+      if (alt) return alt;
+    }
+    return content;
   };
 }
 
