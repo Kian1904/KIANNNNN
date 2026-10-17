@@ -233,10 +233,10 @@ KIANNNNN/
 
 | Urutan | Key | Model | Auth |
 |--------|-----|-------|------|
-| 1 | ovh-qwen | Qwen3.8-27B | **no-auth** (OVHcloud anonim) — PRIMARY |
-| 2 | ovh-llama | Meta-Llama-3_3-70B-Instruct | **no-auth** |
-| 3 | ovh-mistral | Mistral-Small-3.2-24B-Instruct-2506 | **no-auth** |
-| 4 | groq | qwen/qwen3.8-27b | key `gsk_...` — **30 RPM, terkuat** |
+| 1 | groq | qwen/qwen3.8-27b | key `gsk_...` — **PRIMARY, 30 RPM (6/6 mulus saat probe)** |
+| 2 | ovh-qwen | Qwen3.8-27B | **no-auth** (OVHcloud, ~2 RPM/model) |
+| 3 | ovh-llama | Meta-Llama-3_3-70B-Instruct | **no-auth** |
+| 4 | ovh-mistral | Mistral-Small-3.2-24B-Instruct-2506 | **no-auth** |
 | 5 | pollinations | openai-fast (GPT-OSS 20B) | **no-auth**, dead-last (model lemah, OVH-backed) |
 
 > Provider `xkiro`, `openrouter`, `nvidia`, `mistral` sudah DIHAPUS dari cascade
