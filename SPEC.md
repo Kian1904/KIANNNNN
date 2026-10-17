@@ -97,7 +97,10 @@ KIANNNNN/
 │   │   └── fs.js            ✅ readFileSafe, listDirSafe, loadAgentMd, isSafePath (security)
 │   ├── run-casual.js        ✅ runCasual() — di-extract dari index.js
 │   ├── run-task.js          ✅ runTask() — ReAct loop, M12 MAX_LOOPS via env
-│   ├── repl.js              ✅ REPL loop & command router
+│   │                            + M14: param opsional `agentConfig` (agent ber-role)
+│   ├── agents.js            ✅ M14 — Agent registry (agent = config, bukan class)
+│   ├── orchestrator.js      ✅ M14 — state active-agent + runInstruction() (fan-out menyusul)
+│   ├── repl.js              ✅ REPL loop & command router (+ /agent command)
 │   ├── providers.js         ✅ dynamic cascade dari settings.json
 │   ├── providers-registry.js ✅ load/save settings.json, atomic write, chmod 600
 │   ├── db.js                ✅ SQLite
@@ -164,6 +167,61 @@ KIANNNNN/
   - Semua output chat pakai `tui.agentChatBox()` bukan `printUserMessage`/`printAssistantMessage`
   - `const MAX_LOOPS = parseInt(process.env.MAX_LOOPS) || 25` di `src/run-task.js`
   - Set di `.env`: MAX_LOOPS=25
+- [x] **M14 — Multi-agent PoC (role specialization)** ✅ DONE (2026-10-17)
+  - Konsep: **agent = config, bukan class.** Registry `src/agents.js` berisi
+    `{name, persona, actions[], mcpTools, maxLoops, search}`.
+  - 3 agent bawaan: `researcher` (web-only, read-only), `coder` (edit/bash/MCP,
+    dilarang web_search), `reviewer` (read-only terhadap kode, boleh bash utk test).
+  - `runTask()` dapat param opsional TERAKHIR `agentConfig`. Null = generic
+    (perilaku lama persis, backward compatible — REPL & Telegram gak berubah).
+  - Enforcement 2 lapis: (1) filter MCP tool via `mcpTools`, (2) whitelist aksi
+    programatik — aksi di luar `actions[]` diblokir, 3x berturut -> stop.
+  - `src/orchestrator.js` = state active-agent + `runInstruction()`.
+    Command `/agent` di REPL buat list/switch. **Fan-out (dispatch beberapa
+    worker paralel) BELUM ada — itu fase berikutnya.**
+  - Refactor: `src/prompts/system.js` dipecah → `ACTION_FORMAT` (dipakai ulang
+    tiap agent) + `SYSTEM_PROMPT` (identik). Konstitusi kini ter-format rapi
+    (bug lama: array di-toString jadi koma-lewat).
+  - Test: `tests/test-agents.mjs` (35 unit, offline) +
+    `tests/test-agent-integration.mjs` (4 integration, mock provider lokal,
+    backup/restore `.settings.json`).
+- [x] **M15 — Protokol delegasi JSON tervalidasi** ✅ DONE (2026-10-17)
+  - 3 fungsi baru di `src/orchestrator.js`:
+    `parsePlan(raw)` ekstrak JSON dari output LLM berisik (buang thinking tag,
+    markdown fence, prose sebelum/sesudah; fallback cari `{`..`}` / `[`..`]`),
+    `validatePlan(plan)` cek silang ke registry AGENTS (konsisten sama
+    `validateAgent`: balik array masalah, bukan boolean), `plan(instruction)`
+    orchestrate keduanya + auto-retry dengan feedback masalah dikirim balik ke LLM.
+  - Protokol: `{tasks:[{id, role, brief, dependsOn}]}`. Validasi: role wajib ada
+    di AGENTS (nolak role ngawang), brief non-kosong, id unik, dependsOn harus
+    null/id yang ada (tolak self-ref & referensi ngawang), cap `MAX_PLAN_TASKS=4`
+    (nangkep runaway loop model gratisan).
+  - `plan()` pake `askWithFallback` yang sama (cascade provider), gak nambah config.
+  - Return `{ok, tasks, problems, attempts, raw}` — gak throw, biar M16 bisa
+    feed-back atau report.
+  - Test: `tests/test-orchestrator-plan.mjs` (30 unit, tanpa network) +
+    `tests/test-orchestrator-integration.mjs` (5 integration, provider asli +
+    mock HTTP, backup/restore `.settings.json`).
+- [x] **M16 — Fan-out eksekusi (multi-agent jalan beneran)** ✅ DONE (2026-10-17)
+  - `executePlan(planResult, ctx)` di `src/orchestrator.js` — BAGIAN PENGHUBUNG
+    yang sebelumnya missing. Baca hasil `plan()` -> dispatch tiap task ke
+    `runTask` dengan config agent sesuai `role`, context fresh per worker.
+  - `topologicalWaves(tasks)` — kelompokkan task jadi wave per `dependsOn`.
+    Task dalam 1 wave independen. Cycle/dependensi ngawang -> throw (jaring
+    pengaman; `validatePlan` harusnya udah nangkep duluan).
+  - **Handoff dependency:** worker yang `dependsOn` task lain nerima SUMMARY
+    task pendahulunya diinstruksinya (coder dapet hasil researcher).
+  - **Sekuensial dalam wave, bukan paralel** — sadar: `askApproval` pakai
+    readline (nggak aman interaktif barengan) + provider gratisan kena rate
+    limit (paralel malah lebih lambat). Struktur wave siap kalau nanti mau
+    `Promise.allSettled`.
+  - Kalau `plan()` gagal (ok:false) atau tasks kosong -> sinyal `fallback:true`,
+    REPL jalanin 1 task generic (perilaku lama), gak crash.
+  - Command REPL baru: `/plan <task>` (dry-run, tampilkan dekomposisi doang) +
+    `/squad <task>` (plan + eksekusi penuh). Input biasa TETAP single-agent
+    (default lama gak berubah).
+  - Test: `tests/test-squad.mjs` (8: unit topologicalWaves + integration
+    executePlan handoff via mock provider, backup/restore `.settings.json`).
 
 ## Provider Cascade (default seed, di settings.json)
 
@@ -180,28 +238,49 @@ KIANNNNN/
 ## NEXT SESSION START POINT
 **Baca ini dulu sebelum kerja apapun.**
 
-Restrukturisasi selesai (lib/ → src/, index.js dipecah, provider registry + /auth,
-M12). Sekarang lanjut ke:
+M14 (Multi-agent PoC) + M15 (protokol JSON) + M16 (fan-out eksekusi) selesai.
+Sekarang multi-agent UDAH JALAN BENERAN: `/squad <task>` ngedekomposisi task
+lewat `plan()` lalu nge-dispatch ke beberapa agent (researcher/coder/reviewer)
+sesuai `dependsOn`, nerusin hasil antar worker, nerakit ringkasan akhir.
+Input biasa masih single-agent (default lama).
 
-1. **M10 — MCP Plugin System:**
-   - Buat `mcp/catalog/ktools.js` — extracted K's Tools connector
-   - Buat `mcp/catalog/index.js` — known connectors catalog
-   - Implementasikan `/connect` command di `src/commands/connect.js` (atau di repl.js)
-   - Test dan hapus `lib/mcp.js` setelah catalog selesai
+Cara test manual di REPL:
+- `/plan riset cara kerja offline search lalu bikin kodenya` (lihat rencana)
+- `/squad riset cara kerja offline search lalu bikin kodenya` (eksekusi penuh)
+- `/agent` (lihat role), `/help` (daftar command)
 
-2. **M11 — Web Search:**
-   - Integrasikan `src/search.js` ke dalam `run-task.js` (ACTION: web_search sudah ada)
-   - Pastikan cascade Serper→Tavily berfungsi
-   - Hasil mentah tidak ditampilkan ke user (cuma sources), agent reasoning dari hasil
+Yang bisa dikerjakan berikutnya:
 
-3. **Cleanup:**
-   - Hapus folder `lib/` setelah dipastikan semua import mengarah ke `src/`
-   - Update semua referensi di `bin/kian` dan tests
+1. **Auto-routing:**
+   - Bikin `/squad` kepanggil OTOMATIS buat task kompleks (multi-intent), tanpa
+     user harus ketik `/squad`. Pakai `classifyIntent` di `src/intent.js` atau
+     heuristic: task panjang / ada "lalu"/"setelah"/"riset X lalu Y" -> squad.
 
-4. **TUI (optional, prioritas lebih rendah):**
-   - Kalau sempat, buat TUI berbasis `blessed` atau `ink` untuk UX lebih baik.
+2. **Paralel dalam wave (optimalisasi):**
+   - Setelah `askApproval` dibikin concurrency-safe (mutex/queue), tukar inner
+     loop `executePlan` ke `Promise.allSettled`. Struktur wave udah siap.
+
+3. **Surface Telegram:**
+   - `src/telegram-bot.js` belum punya jalur `/squad`. Tambahin handle command
+     sama biar multi-agent bisa dipakai dari Telegram juga.
+
+4. **Tolak/validasi task besar:**
+   - Task yang butuh > `MAX_PLAN_TASKS` (4) subtask — sekarang `plan()` balikin
+     ok:false + feedback. Bisa ditambah auto-split jadi batch, atau guide user
+     buat pecah manual.
+
+5. **Cleanup (dari M10, masih pending):**
+   - Hapus `lib/` folder + `lib/mcp.js` setelah semua import dipastikan ke `src/`.
 
 ## FINDING Terbuka
+
+**[OPEN] logStep crash kalau threadId=null (jalur mati):**
+`run-task.js` punya beberapa branch `else { logStep({task: instruction, ...}) }`
+dipanggil saat `threadId=null`. Tapi `db.js logStep({threadId, role, content, ...})`
+mendestructure jadi `undefined` → SQLite nolak bind param 1
+(`ERR_INVALID_ARG_TYPE`). Gak pernah kejadian di produksi karena REPL & Telegram
+selalu kirim threadId. Ditemukan oleh `tests/test-agent-integration.mjs`.
+Fix: buang branch `{task:...}` atau bikin `logStep` handle shape itu.
 
 **[RESOLVED] lib/mcp.js masih aktif dipakai:**
 Sudah diganti dengan mcp/client.js, import di index.js sudah update. `lib/mcp.js`

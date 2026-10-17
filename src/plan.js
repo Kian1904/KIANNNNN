@@ -40,10 +40,13 @@ function buildHistoryText(history) {
   }).join('\n');
 }
 
-export async function planStep(askFn, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools, webSearchCount }) {
-  const systemPrompt = agentMd
-    ? `${SYSTEM_PROMPT}\n\n## Project Instructions (AGENT.md)\n${agentMd}`
-    : SYSTEM_PROMPT;
+export async function planStep(askFn, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools, webSearchCount, systemPromptOverride }) {
+  // systemPromptOverride dipakai oleh agent ber-role (lihat src/agents.js) untuk
+  // mengganti prompt generik dengan prompt spesifik role + pembatasan aksi.
+  const systemPrompt = systemPromptOverride
+    || (agentMd
+      ? `${SYSTEM_PROMPT}\n\n## Project Instructions (AGENT.md)\n${agentMd}`
+      : SYSTEM_PROMPT);
 
   const memoryText = recentMemory && recentMemory.length > 0
   ? recentMemory.map(m => `- [${m.key}]: ${m.value}`).join('\n')

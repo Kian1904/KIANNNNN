@@ -10,6 +10,7 @@ import { callTool } from '../mcp/client.js';
 import { searchWeb } from './search.js';
 import { print, printBlock, sep, blank } from './ui.js';
 import { readFileSafe, listDirSafe } from './utils/fs.js';
+import { composeAgentPrompt, filterToolsForAgent } from './agents.js';
 
 // M12 — Extended MAX_LOOPS
 const MAX_LOOPS = parseInt(process.env.MAX_LOOPS) || 25;
@@ -28,31 +29,62 @@ const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:task]', ...args); };
  * @param {Function} trackAction
  * @param {Function} isDangerous
  * @param {Function} askApproval
+ * @param {Object|null} agentConfig - config agent ber-role (src/agents.js); null = generic
  */
-export async function runTask(instruction, agentMd, availableTools, threadId, stats, trackProvider, trackAction, isDangerous, askApproval) {
+export async function runTask(instruction, agentMd, availableTools, threadId, stats, trackProvider, trackAction, isDangerous, askApproval, agentConfig = null) {
   if (stats) stats.tasks++;
   const history = [];
   let lastTarget = null;
   const recentMemory = getRecentDecisions(5);
   let webSearchCount = 0;
 
+  // --- Konfigurasi agent (null = generic, perilaku lama persis) ---
+  const maxLoops = (agentConfig && agentConfig.maxLoops) || MAX_LOOPS;
+  const systemPromptOverride = agentConfig ? composeAgentPrompt(agentConfig, agentMd) : null;
+  const toolsForAgent = agentConfig
+    ? filterToolsForAgent(availableTools, agentConfig.mcpTools)
+    : availableTools;
+  const allowedActions = agentConfig ? agentConfig.actions : null;
+  let blockedCount = 0;
+
   dbg('=== Task Start ===');
   dbg('Instruction:', instruction);
+  dbg('agent:', agentConfig ? `${agentConfig.name} (maxLoops=${maxLoops}, actions=${allowedActions.join('|')}, tools=${toolsForAgent.length})` : 'generic');
   dbg('agentMd:', agentMd ? `loaded (${agentMd.length} chars)` : 'not found');
   dbg('recentMemory:', recentMemory.length, 'entries');
-  dbg('availableTools:', availableTools?.map(t => t.name) || []);
+  dbg('availableTools:', toolsForAgent?.map(t => t.name) || []);
 
-  for (let i = 1; i <= MAX_LOOPS; i++) {
+  for (let i = 1; i <= maxLoops; i++) {
     const fileSnapshot = readFileSafe(lastTarget);
     dbg(`--- Loop ${i} ---`);
     dbg('fileSnapshot:', fileSnapshot.slice(0, 100) + (fileSnapshot.length > 100 ? '...' : ''));
 
-    const step = await planStep(askWithFallback, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools, webSearchCount });
+    const step = await planStep(askWithFallback, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools: toolsForAgent, webSearchCount, systemPromptOverride });
     
     if (trackProvider) trackProvider(fallbackState.lastProvider);
     if (trackAction) trackAction(step.action);
 
     dbg('Parsed step:', JSON.stringify({ action: step.action, target: step.target, tool: step.tool }).replace(/undefined/g, '-'));
+
+    // --- WHITELIST AGENT: tolak aksi di luar kapasitas role ini ---
+    if (allowedActions && step.action !== 'done' && !allowedActions.includes(step.action)) {
+      blockedCount++;
+      print('blocked', `Agent "${agentConfig.name}" tidak boleh ACTION: ${step.action}. Diizinkan: ${allowedActions.join(', ')}.`);
+      history.push({
+        action: 'user_condition',
+        condition: `ACTION ${step.action} TIDAK DIIZINKAN untuk role ${agentConfig.name}. Pilih salah satu dari: ${allowedActions.join(', ')}, atau done.`
+      });
+      if (threadId) {
+        logStep({ threadId, role: 'assistant', content: `Blocked disallowed action ${step.action} for agent ${agentConfig.name}`, actionType: 'blocked', reasoning: step.reasoning, approved: false });
+      }
+      if (blockedCount >= 3) {
+        const msg = `Agent "${agentConfig.name}" terus memilih aksi terlarang (${blockedCount}x) — task dihentikan.`;
+        print('stop', msg);
+        blank();
+        return msg;
+      }
+      continue;
+    }
 
     // --- DONE ---
     if (step.action === 'done') {
@@ -81,7 +113,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     // Untuk semua action teknis — baru tampilkan header
     blank();
     sep();
-    print('step', `${i} / ${MAX_LOOPS}`);
+    print('step', `${i} / ${maxLoops}`);
     sep();
     print('provider', fallbackState.lastProvider);
     print('reasoning', step.reasoning);
@@ -129,7 +161,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     if (step.action === 'mcp_call') {
       print('mcp', `Memanggil tool: ${step.tool}`);
       try {
-        const result = await callTool(step.tool, step.toolArgs, availableTools);
+        const result = await callTool(step.tool, step.toolArgs, toolsForAgent);
         print('mcp', 'Hasil:');
         printBlock(result.slice(0, 2500) + (result.length > 500 ? '...' : ''));
         history.push({ action: 'mcp_call', tool: step.tool, result });
@@ -164,7 +196,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       if (webSearchCount > 2) {
         print('info', 'Batas 2x web_search tercapai — memaksa rangkuman dari data yang ada.');
         const forcedInstruction = `${instruction}\n\n[SISTEM: Kamu sudah mencapai batas maksimal pencarian web. WAJIB ACTION: done sekarang. Tulis SUMMARY dari hasil search yang sudah ada di history dengan kata-katamu sendiri. DILARANG ACTION: web_search atau ACTION: mcp_call apapun di langkah ini.]`;
-        const forcedStep = await planStep(askWithFallback, { instruction: forcedInstruction, fileSnapshot, history, agentMd, recentMemory, availableTools, webSearchCount });
+        const forcedStep = await planStep(askWithFallback, { instruction: forcedInstruction, fileSnapshot, history, agentMd, recentMemory, availableTools: toolsForAgent, webSearchCount, systemPromptOverride });
         if (forcedStep.action === 'done') {
           print('done', forcedStep.summary);
           if (threadId) {
@@ -252,9 +284,9 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     }
   }
 
-  print('stop', `Sampai batas ${MAX_LOOPS} langkah tanpa selesai.`);
+  print('stop', `Sampai batas ${maxLoops} langkah tanpa selesai.`);
   if (threadId) {
-    logStep({ threadId, role: 'assistant', content: `Reached loop limit of ${MAX_LOOPS} without completing task.`, actionType: 'stop', reasoning: 'Loop limit reached' });
+    logStep({ threadId, role: 'assistant', content: `Reached loop limit of ${maxLoops} without completing task.`, actionType: 'stop', reasoning: 'Loop limit reached' });
   }
   blank();
 }
