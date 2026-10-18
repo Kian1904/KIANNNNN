@@ -303,16 +303,23 @@ function aggregateResults(results) {
  * Kalau nanti mau paralel, tukar inner loop jadi Promise.allSettled — struktur
  * wave-nya udah siap.
  *
+ * M17: satu worker yang MELEMPAR error TIDAK mematikan seluruh squad — error
+ * dikarantina jadi summary task itu ("TASK GAGAL: ..."), task lain lanjut, dan
+ * dependensi turunannya tetap terima hasil (walau isinya error) supaya bisa
+ * memutuskan sendiri. Deps ke-3 opsional biar test bisa inject runTask palsu.
+ *
  * @param {{ok:boolean, tasks:Array, problems:string[]}} planResult - hasil plan()
  * @param {Object} ctx - { originalInstruction, agentMd, availableTools, threadId,
  *                         stats, trackProvider, trackAction, isDangerous, askApproval }
+ * @param {{runTask?:Function}} [deps] - override (test); default pakai runTask asli
  * @returns {Promise<{ok:boolean, fallback:boolean, results:Array, finalSummary:string, problems:string[]}>}
  */
-export async function executePlan(planResult, ctx) {
+export async function executePlan(planResult, ctx, deps = {}) {
   const {
     originalInstruction, agentMd, availableTools, threadId,
     stats, trackProvider, trackAction, isDangerous, askApproval,
   } = ctx;
+  const runTaskFn = deps.runTask || runTask;
 
   // Rencana gagal / kosong -> sinyal fallback (pemanggil jalanin task generic)
   if (!planResult || !planResult.ok) {
@@ -338,10 +345,15 @@ export async function executePlan(planResult, ctx) {
       const depSummary = task.dependsOn != null ? summaryById.get(task.dependsOn) : null;
       const instruction = buildWorkerInstruction(task, originalInstruction, depSummary);
 
-      const summary = await runTask(
+      const summary = await runTaskFn(
         instruction, agentMd, availableTools, threadId,
         stats, trackProvider, trackAction, isDangerous, askApproval, agent
-      );
+      ).catch(err => {
+        // Karantina: worker gagal total (crash, provider mati, dsb) —
+        // jadikan error jadi summary task ini, squad TETAP lanjut.
+        console.error(`[squad] worker task ${task.id} (${task.role}) gagal:`, err.message);
+        return `TASK GAGAL: ${err.message}`;
+      });
 
       const clean = typeof summary === 'string' && summary.trim()
         ? summary.trim()

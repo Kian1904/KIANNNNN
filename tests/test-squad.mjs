@@ -77,5 +77,30 @@ try {
   else if (fs.existsSync(SETTINGS)) fs.unlinkSync(SETTINGS);
 }
 
+// ── M17: error isolation per worker ──
+console.log('\n[3] executePlan error isolation (M17)');
+{
+  const pFake = { ok: true, tasks: [
+    { id: 1, role: 'coder', brief: 'a', dependsOn: null },
+    { id: 2, role: 'reviewer', brief: 'b', dependsOn: 1 },
+  ], problems: [] };
+  let ran2 = false;
+  const exec2 = await executePlan(pFake, {
+    originalInstruction: 'x', agentMd: null, availableTools: [], threadId: TID,
+    stats: null, trackProvider: null, trackAction: null,
+    isDangerous: () => false, askApproval: async () => ({ approved: true, condition: null }),
+  }, {
+    runTask: async (instr) => {
+      if (instr.includes('role coder')) throw new Error('BOOM');
+      ran2 = true;
+      return 'review lolos';
+    },
+  });
+  check('squad tetap ok walau task1 crash', exec2.ok && exec2.results.length === 2, JSON.stringify(exec2.problems));
+  check('error task1 dikarantina jadi summary', exec2.results[0].summary.includes('TASK GAGAL') && exec2.results[0].summary.includes('BOOM'));
+  check('task2 tetap jalan (dependency terima info error)', ran2 && exec2.results[1].summary === 'review lolos');
+  check('finalSummary memuat error + hasil task2', exec2.finalSummary.includes('TASK GAGAL') && exec2.finalSummary.includes('review lolos'));
+}
+
 console.log(`\n=== HASIL M16: ${pass} pass, ${fail} fail ===`);
 process.exit(fail>0?1:0);

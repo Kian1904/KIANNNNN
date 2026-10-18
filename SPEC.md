@@ -223,6 +223,42 @@ KIANNNNN/
   - Test: `tests/test-squad.mjs` (8: unit topologicalWaves + integration
     executePlan handoff via mock provider, backup/restore `.settings.json`).
 
+- [x] **M17 — Telegram Squad + hardening** ✅ DONE (2026-10-18)
+  - `src/approval.js` (baru): `isDangerous` + `ALWAYS_ASK_PATTERNS` diekstrak dari
+    `repl.js` — aturan approval REPL & Telegram kini SATU sumber (single source of
+    truth), gak mungkin beda perilaku.
+  - `executePlan(planResult, ctx, deps?)` — **error isolation per worker**:
+    worker yang melempar error DIKARANTINA jadi summary `"TASK GAGAL: <err>"`,
+    task lain + dependency turunan TETAP lanjut (dulu: 1 crash = squad mati).
+    Param `deps` ke-3 = inject `runTask` palsu buat test.
+  - `src/telegram-bot.js` **di-rewrite penuh** — factory `createTelegramBot(deps)`
+    (semua dependency injectable, produksi = default modul asli):
+    - SEMUA instruksi lewat `runInstruction` (orchestrator), bukan `runTask`
+      telanjang. Sebelum M17 bot ini cacat dobel: (a) gak punya /agent /plan
+      /squad (b) `askApproval` gak pernah dikirim → **CRASH
+      `askApproval is not a function`** tiap agent minta edit/bash dari HP.
+    - Command setara REPL: `/agent [nama|off]`, `/plan <task>` (dry-run),
+      `/squad <task>` (plan + eksekusi, fallback ke single-agent PERSIS REPL),
+      `/stats`, `/clear`, `/help`, `/start`.
+    - **Approval via balasan chat**: `y` (sekali) / `s` (sesi, gak tersedia utk
+      destruktif) / `n` / `c <kondisi>`; timeout `APPROVAL_TIMEOUT_MS` (120s) →
+      auto-reject. Pesan asing saat nunggu izin → reminder, BUKAN diproses jadi
+      instruksi.
+    - Anti-deadlock: jawaban approval dicek PALING AWAL di `handleMessage`
+      (sebelum busy-gate); polling fire-and-forget — loop `getUpdates` TIDAK
+      PERNAH mati nunggu approval/task.
+    - Busy gate: 1 task besar / 1 waktu — pesan ke-2 kena "tunggu", gak pernah
+      2 task LLM paralel (single-user bot).
+    - Allowlist user: pesan dari ID di luar daftar dibungkam total (bot privat).
+    - Entry: `node src/telegram-bot.js` (main-guard `pathToFileURL`); polling
+      mode — gak butuh IP publik.
+  - Test BARU `tests/test-telegram.mjs`: **26 pass** — isApprovalAnswer,
+    routing /help /agent /plan /squad /stats, allowlist, argumen runInstruction,
+    approval y/n/reminder, busy gate. Fetch + LLM **full mock — offline**.
+    `tests/test-squad.mjs` + case [3] error isolation → **12 pass**.
+  - Full suite 2026-10-18: **139 pass, 0 fail** (kecuali `test-mcp.mjs` —
+    environmental, lihat FINDING).
+
 ## Provider Cascade (aktif di `.settings.json`, urutan = prioritas cascade)
 
 > **Dukungan no-auth (2026-10-17):** `makeOpenAICompatible` di `src/providers.js`
@@ -254,16 +290,24 @@ xkiro-coder, gemini, deepseek-v4-pro sempat ada tapi beberapa sudah gak aktif/di
 ## NEXT SESSION START POINT
 **Baca ini dulu sebelum kerja apapun.**
 
-M14 (Multi-agent PoC) + M15 (protokol JSON) + M16 (fan-out eksekusi) selesai.
-Sekarang multi-agent UDAH JALAN BENERAN: `/squad <task>` ngedekomposisi task
-lewat `plan()` lalu nge-dispatch ke beberapa agent (researcher/coder/reviewer)
-sesuai `dependsOn`, nerusin hasil antar worker, nerakit ringkasan akhir.
+M14 (Multi-agent PoC) + M15 (protokol JSON) + M16 (fan-out eksekusi) +
+M17 (Telegram Squad + hardening) selesai.
+Sekarang multi-agent UDAH JALAN BENERAN **di dua surface**: REPL `node index.js`
+dan Telegram `node src/telegram-bot.js` — dua-duanya punya `/agent /plan /squad`
++ approval yang aturannya SATU (`src/approval.js`). `/squad <task>` ngedekomposisi
+task lewat `plan()`, nge-dispatch ke beberapa agent (researcher/coder/reviewer)
+sesuai `dependsOn`, nerusin hasil antar worker, nerakit ringkasan akhir — dan
+worker yang crash gak matiin squad (error isolation M17).
 Input biasa masih single-agent (default lama).
 
 Cara test manual di REPL:
 - `/plan riset cara kerja offline search lalu bikin kodenya` (lihat rencana)
 - `/squad riset cara kerja offline search lalu bikin kodenya` (eksekusi penuh)
 - `/agent` (lihat role), `/help` (daftar command)
+
+Cara test manual di Telegram (butuh `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USER_IDS` di .env):
+- `node src/telegram-bot.js` → chat bot: `/help`, `/plan ...`, `/squad ...`
+- Approval: balas `y` / `s` / `n` / `c <kondisi>` (timeout 120s otomatis tolak)
 
 Yang bisa dikerjakan berikutnya:
 
@@ -275,20 +319,29 @@ Yang bisa dikerjakan berikutnya:
 2. **Paralel dalam wave (optimalisasi):**
    - Setelah `askApproval` dibikin concurrency-safe (mutex/queue), tukar inner
      loop `executePlan` ke `Promise.allSettled`. Struktur wave udah siap.
+   - CATATAN M17: approval Telegram punya busy-gate + state terpusat, jadi lebih
+     gampang dikonversi ke paralel daripada approval readline REPL.
 
-3. **Surface Telegram:**
-   - `src/telegram-bot.js` belum punya jalur `/squad`. Tambahin handle command
-     sama biar multi-agent bisa dipakai dari Telegram juga.
-
-4. **Tolak/validasi task besar:**
+3. **Tolak/validasi task besar:** (sudah ada batch potential, belum dikerjakan)
    - Task yang butuh > `MAX_PLAN_TASKS` (4) subtask — sekarang `plan()` balikin
      ok:false + feedback. Bisa ditambah auto-split jadi batch, atau guide user
      buat pecah manual.
 
-5. **Cleanup (dari M10, masih pending):**
+4. **Cleanup (dari M10, masih pending):**
    - Hapus `lib/` folder + `lib/mcp.js` setelah semua import dipastikan ke `src/`.
 
+5. **Test MCP sehat lagi (dari M17):**
+   - `tests/test-mcp.mjs` live-check ke `MCP_SERVER_URL` — kalau server mati dia
+     exit 1 (bukan regresi). Lihat FINDING.
+
 ## FINDING Terbuka
+
+**[OPEN 2026-10-18] `tests/test-mcp.mjs` exit=1 kalau server MCP mati (environmental):**
+Test itu LIVE-CHECK `discoverTools()` ke `MCP_SERVER_URL` (.env) — kalau server
+gak nyambung dia balikin `[]` lalu exit 1 ("cek koneksi MCP"). **Bukan regresi**
+folder `mcp/` gak disentuh M17 (2026-10-18 semua suite lain exit=0).
+Fix: health-check di awal test → SKIP dengan exit 0 + catat (bukan fail), atau
+hidupin lagi server MCP-nya.
 
 **[RESOLVED 2026-10-17] logStep crash kalau threadId=null (jalur mati):**
 `logStep` di `db.js` kini DEFENSIF: shape legacy `{task, ...}` ternormalisasi

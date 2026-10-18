@@ -14,21 +14,13 @@ import { handleModel } from './commands/model.js';
 import { handleUsage } from './commands/usage.js';
 import { handleConnect } from './commands/connect.js';
 import { handleAuth } from './commands/auth.js'; // BARU
+import { isDangerous } from './approval.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:repl]', ...args); };
 
 // Session allowed (stateful authorization per session)
 const sessionAllowed = new Set();
-
-const ALWAYS_ASK_PATTERNS = [
-  /\brm\b/, /\bsudo\b/, /\bchmod\b/, /\bdd\b/,
-  /\bnpm\s+uninstall\b/, /\bpkg\s+uninstall\b/, /\bkill\b/
-];
-
-function isDangerous(command) {
-  return ALWAYS_ASK_PATTERNS.some(p => p.test(command));
-}
 
 async function startREPL() {
   // Initialize TUI state
