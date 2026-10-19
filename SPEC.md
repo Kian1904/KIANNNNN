@@ -120,7 +120,11 @@ KIANNNNN/
 │   ├── registry.js          ✅ DONE
 │   ├── client.js            ✅ DONE
 │   └── catalog/             ⬜ TODO
-├── tests/                    ← Test files
+├── tests/                    ← Test files (14 file, suite 163 pass)
+│   ├── helpers/
+│   │   └── mock-mcp-server.mjs  ✅ mock MCP Streamable HTTP (JSON+SSE)
+│   ├── test-mcp.mjs         ✅ live-check; SKIP exit 0 kalau environment mati
+│   └── test-mcp-client.mjs  ✅ kontrak client vs mock (self-contained, 24 pass)
 ├── bin/
 │   └── kian                 ✅ executable
 ├── AGENT.md
@@ -256,8 +260,9 @@ KIANNNNN/
     routing /help /agent /plan /squad /stats, allowlist, argumen runInstruction,
     approval y/n/reminder, busy gate. Fetch + LLM **full mock — offline**.
     `tests/test-squad.mjs` + case [3] error isolation → **12 pass**.
-  - Full suite 2026-10-18: **139 pass, 0 fail** (kecuali `test-mcp.mjs` —
-    environmental, lihat FINDING).
+  - Full suite 2026-10-19: **163 pass, 0 fail, 14/14 file exit=0** (test-mcp
+    kini SKIP-exit-0 kalau environment mati + jalur MCP beneran ke-cover sama
+    `test-mcp-client.mjs` — lihat FINDING MCP).
 
 ## Provider Cascade (aktif di `.settings.json`, urutan = prioritas cascade)
 
@@ -327,21 +332,44 @@ Yang bisa dikerjakan berikutnya:
      ok:false + feedback. Bisa ditambah auto-split jadi batch, atau guide user
      buat pecah manual.
 
-4. **Cleanup (dari M10, masih pending):**
-   - Hapus `lib/` folder + `lib/mcp.js` setelah semua import dipastikan ke `src/`.
+4. ~~**Cleanup (dari M10):** hapus `lib/` folder~~ ✅ SUDAH BERSIH (2026-10-19
+   dicek: `lib/` gak ada di working tree, `mcp/client.js` sudah jadi pengganti
+   `lib/mcp.js`).
 
-5. **Test MCP sehat lagi (dari M17):**
-   - `tests/test-mcp.mjs` live-check ke `MCP_SERVER_URL` — kalau server mati dia
-     exit 1 (bukan regresi). Lihat FINDING.
+5. ~~**Test MCP sehat lagi (dari M17):**~~ ✅ SELESAI (2026-10-19) — lihat
+   FINDING MCP yang sudah RESOLVED.
 
 ## FINDING Terbuka
 
-**[OPEN 2026-10-18] `tests/test-mcp.mjs` exit=1 kalau server MCP mati (environmental):**
-Test itu LIVE-CHECK `discoverTools()` ke `MCP_SERVER_URL` (.env) — kalau server
-gak nyambung dia balikin `[]` lalu exit 1 ("cek koneksi MCP"). **Bukan regresi**
-folder `mcp/` gak disentuh M17 (2026-10-18 semua suite lain exit=0).
-Fix: health-check di awal test → SKIP dengan exit 0 + catat (bukan fail), atau
-hidupin lagi server MCP-nya.
+**[RESOLVED 2026-10-19] `tests/test-mcp.mjs` exit=1 kalau server MCP mati:**
+Dulu test itu LIVE-CHECK `discoverTools()` → 0 tool → `exit 1`, jadi suite
+gagal tiap kali server lagi mati. Diperbaiki dua bagian:
+
+1. `tests/test-mcp.mjs` (rewrite) — **health-check dulu**, lalu bedain:
+   - 0 connection aktif (`~/.krouter_data/connections.json` gak ada / kosong) →
+     `SKIP exit 0` + catat. **Environmental, bukan regresi.**
+   - ada connection tapi 0 tool terdiscovery (server mati/tidak terjangkau) →
+     `SKIP exit 0` + catat.
+   - MCP hidup → **wajib lewat**: tool pool non-empty, tiap tool punya
+     `_serverUrl`/`_serverName`, `summarize` ada + punya `inputSchema`,
+     `callTool` balikin hasil non-kosong, tool tak dikenal melempar error
+     "tidak ditemukan".
+2. **Kontrak client akhirnya keuji beneran** lewat 2 file baru:
+   - `tests/helpers/mock-mcp-server.mjs` — mock MCP Streamable HTTP
+     (zero-dep, `node:http`): `initialize`/`tools/list`/`tools/call`,
+     handshake `mcp-session-id` (request selain initialize dengan session
+     asal = `400 Unknown session`), tool `summarize` + `echo`, dan mode
+     **SSE** via `?sse=1` (Content-Type `text/event-stream`).
+   - `tests/test-mcp-client.mjs` — **24 pass**: discovery JSON dan SSE,
+     session handshake, cache tool ke registry + `lastConnected`,
+     `callTool` (mode poin/kalimat, arg passthrough), error propagation
+     (arg wajib hilang → error server ke-propagate), server mati →
+     `discoverTools()` balikin `[]` tanpa nge-throw.
+   - **Isolasi wajib:** test nge-set `HOME` ke tmp **sebelum** import
+     `registry.js` (registry ngitung path saat load), jadi
+     `~/.krouter_data/connections.json` user asli gak pernah ke-sentuh.
+
+Hasil: suite penuh **163 pass, 0 fail, 14/14 file exit=0** (2026-10-19).
 
 **[RESOLVED 2026-10-17] logStep crash kalau threadId=null (jalur mati):**
 `logStep` di `db.js` kini DEFENSIF: shape legacy `{task, ...}` ternormalisasi
