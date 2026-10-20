@@ -24,8 +24,8 @@ console.log('\n[2] Compose prompt per agent');
 const researcherPrompt = composeAgentPrompt(AGENTS.researcher, null);
 check('researcher prompt memuat persona', researcherPrompt.includes('RESEARCHER'));
 check('researcher prompt memuat ACTION_FORMAT', researcherPrompt.includes('ACTION: edit') && researcherPrompt.includes('ACTION: web_search'));
-check('researcher prompt membatasi aksi', researcherPrompt.includes('HANYA: read, list_dir, web_search, chat, remember'));
-check('researcher prompt memuat aturan search', researcherPrompt.includes('baca snippet hasilnya'));
+check('researcher prompt membatasi aksi', researcherPrompt.includes('HANYA: read, list_dir, web_search, web_fetch, chat, remember'));
+check('researcher prompt memuat aturan search', researcherPrompt.includes('web_fetch') && researcherPrompt.includes('pilih langkah yang paling masuk akal'));
 
 const coderPrompt = composeAgentPrompt(AGENTS.coder, null);
 check('coder prompt memuat persona', coderPrompt.includes('CODER'));
@@ -63,8 +63,8 @@ console.log('\n[6] Batas aksi diketahui parser');
 // jumlahnya, tapi: setiap aksi yang dibolehkan ke agent HARUS dikenali parser.
 // Kalau ada yang kelewat, agent bakal "boleh" melakukan sesuatu yang parse-nya
 // ditolak diam-diam.
-check('KNOWN_ACTIONS: 11 aksi (8 lama + delete/rename/move)',
-  KNOWN_ACTIONS.length === 11, `dapat ${KNOWN_ACTIONS.length}`);
+check('KNOWN_ACTIONS: 12 aksi (8 lama + web_fetch + delete/rename/move)',
+  KNOWN_ACTIONS.length === 12, `dapat ${KNOWN_ACTIONS.length}`);
 check('aksi destruktif dikenal parser',
   ['delete', 'rename', 'move'].every(a => KNOWN_ACTIONS.includes(a)));
 check('setiap aksi agent subset KNOWN_ACTIONS',

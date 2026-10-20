@@ -9,6 +9,7 @@ import { runCommand } from './bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js';
 import { callTool } from '../mcp/client.js';
 import { searchWeb } from './search.js';
+import { fetchWebPage } from './web-fetch.js';
 import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
 import { inspectTarget, describeTarget, rejectReason, applyFileOp } from './file-ops.js';
@@ -85,7 +86,22 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       return fallbackSummary;
     }
 
-    const step = sr.step;
+    let step = sr.step;
+    // Guard praktis: kalau model mengulang web_search setelah dua pencarian,
+    // jangan buang kuota dengan query identik. Ambil URL terbaik dari hasil yang
+    // sudah ada dan fetch isinya. Ini fallback fleksibel, bukan kewajiban
+    // web_fetch di setiap riset.
+    if (step.action === 'web_search' && webSearchCount >= 2) {
+      const candidates = history
+        .filter(h => h.action === 'web_search')
+        .flatMap(h => String(h.summary || '').match(/https?:\/\/[^\s)]+/g) || []);
+      const official = candidates.find(u => /bmkg\.go\.id|\.gov\.|\.go\.id\//i.test(u));
+      const chosen = official || candidates[0];
+      if (chosen) {
+        print('info', `Search diulang — ambil isi sumber yang sudah ditemukan: ${chosen}`);
+        step = { action: 'web_fetch', url: chosen, reasoning: step.reasoning };
+      }
+    }
     if (sr.attempts > 1) dbg(`step berhasil setelah ${sr.attempts} percobaan`);
     
     if (trackProvider) trackProvider(fallbackState.lastProvider);
@@ -232,8 +248,27 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       actionIndicator('web_search', step.query);
       webSearchCount++;
       if (webSearchCount > 2) {
+        // Kalau model tetap memilih search setelah limit, pakai URL resmi yang
+        // sudah ditemukan untuk fetch sekali—jangan buang hasil riset cuma karena
+        // model mengulang ACTION web_search.
+        const candidates = history
+          .filter(h => h.action === 'web_search')
+          .flatMap(h => String(h.summary || '').match(/https?:\/\/[^\s)]+/g) || []);
+        const official = candidates.find(u => /bmkg\.go\.id|\.gov\.|\.go\.id\//i.test(u));
+        const chosen = official || candidates[0];
+        if (chosen) {
+          print('info', `Batas search tercapai — ambil isi sumber: ${chosen}`);
+          const page = await fetchWebPage(chosen);
+          if (page.ok) {
+            history.push({ action: 'web_fetch', url: page.url, summary: page.text.slice(0, 30000) });
+            actionIndicator('web_fetch', chosen);
+            printBlock(page.text.slice(0, 6000), 2);
+          } else {
+            history.push({ action: 'web_fetch', url: chosen, summary: `ERROR: ${page.error}` });
+          }
+        }
         print('info', 'Batas 2x web_search tercapai — memaksa rangkuman dari data yang ada.');
-        const forcedInstruction = `${instruction}\n\n[SISTEM: Kamu sudah mencapai batas maksimal pencarian web. WAJIB ACTION: done sekarang. Tulis SUMMARY dari hasil search yang sudah ada di history dengan kata-katamu sendiri. DILARANG ACTION: web_search atau ACTION: mcp_call apapun di langkah ini.]`;
+        const forcedInstruction = `${instruction}\n\n[SISTEM: Kamu sudah mencapai batas maksimal pencarian web. WAJIB ACTION: done sekarang. Tulis SUMMARY dari hasil search/fetch yang sudah ada di history dengan kata-katamu sendiri. DILARANG ACTION: web_search atau ACTION: mcp_call apapun di langkah ini.]`;
         const fr = await planStepWithRetry(askWithFallback, { instruction: forcedInstruction, fileSnapshot, history, agentMd, recentMemory, availableTools: toolsForAgent, webSearchCount, systemPromptOverride }, { maxAttempts: 2 });
         const forcedStep = fr.ok ? fr.step : { action: 'done', summary: '', reasoning: 'paksa selesai (model gak kooperatif)' };
         if (forcedStep.action === 'done') {
@@ -258,6 +293,31 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           .map((r, idx) => `[${idx + 1}] ${r.title}\n${r.url}\n${r.snippet}`)
           .join('\n\n');
         history.push({ action: 'web_search', query: step.query, provider, summary: summary || '(tidak ada hasil)' });
+
+        // Safety net fleksibel: kalau sudah dua search dan belum pernah membaca
+        // halaman, ambil satu sumber resmi terbaik. Model tetap boleh langsung
+        // done pada kasus snippet yang cukup; fetch ini hanya memastikan riset
+        // data-spesifik (cuaca/harga/status) gak berhenti di daftar URL.
+        if (webSearchCount >= 2 && !history.some(h => h.action === 'web_fetch')) {
+          const candidates = history
+            .filter(h => h.action === 'web_search')
+            .flatMap(h => String(h.summary || '').match(/https?:\/\/[^\s)]+/g) || []);
+          const official = candidates.find(u => /bmkg\.go\.id|\.gov\.|\.go\.id\//i.test(u));
+          const ordered = [...new Set([official, ...candidates].filter(Boolean))];
+          let fetched = false;
+          for (const chosen of ordered.slice(0, 3)) {
+            print('info', `Dua search selesai — baca sumber terbaik: ${chosen}`);
+            const page = await fetchWebPage(chosen);
+            if (page.ok) {
+              history.push({ action: 'web_fetch', url: page.url, summary: page.text.slice(0, 30000) });
+              actionIndicator('web_fetch', chosen);
+              printBlock(page.text.slice(0, 6000), 2);
+              fetched = true;
+              break;
+            }
+          }
+          if (!fetched) history.push({ action: 'web_fetch', url: ordered[0] || '', summary: 'ERROR: semua sumber kandidat gagal di-fetch' });
+        }
         if (threadId) {
           logStep({ threadId, role: 'assistant', content: `Searched: ${step.query}\nSources: ${results.map(r => r.url).join(', ')}`, actionType: 'web_search', detail: { query: step.query, provider, sources: results.map(r => r.url) }, reasoning: step.reasoning });
         }
@@ -267,6 +327,29 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         if (threadId) {
           logStep({ threadId, role: 'assistant', content: `Search error: ${step.query}\nError: ${err.message}`, actionType: 'web_search', detail: { query: step.query, error: err.message }, reasoning: step.reasoning });
         }
+      }
+      continue;
+    }
+
+    // --- WEB_FETCH ---
+    if (step.action === 'web_fetch') {
+      actionIndicator('web_fetch', step.url);
+      try {
+        const page = await fetchWebPage(step.url);
+        if (!page.ok) {
+          print('search_err', `Fetch gagal (${page.error})${page.status ? ` HTTP ${page.status}` : ''}`);
+          history.push({ action: 'web_fetch', url: step.url, summary: `ERROR: ${page.error}${page.status ? ` HTTP ${page.status}` : ''}` });
+        } else {
+          const summary = page.text || '(halaman kosong)';
+          printBlock(summary.slice(0, 6000), 2);
+          history.push({ action: 'web_fetch', url: page.url, summary: summary.slice(0, 30000) });
+          if (threadId) {
+            logStep({ threadId, role: 'assistant', content: `Fetched: ${page.url}`, actionType: 'web_fetch', detail: { url: page.url, status: page.status, chars: summary.length }, reasoning: step.reasoning });
+          }
+        }
+      } catch (err) {
+        print('search_err', err.message);
+        history.push({ action: 'web_fetch', url: step.url, summary: `ERROR: ${err.message}` });
       }
       continue;
     }

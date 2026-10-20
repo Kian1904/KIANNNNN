@@ -18,7 +18,7 @@ import { ACTION_FORMAT, SYSTEM_PROMPT } from './prompts/system.js';
  */
 
 // Aksi yang dikenal parser di src/plan.js (done selalu boleh, tidak perlu dicatat)
-const KNOWN_ACTIONS = ['edit', 'bash', 'read', 'list_dir', 'remember', 'mcp_call', 'web_search', 'chat', 'delete', 'rename', 'move'];
+const KNOWN_ACTIONS = ['edit', 'bash', 'read', 'list_dir', 'remember', 'mcp_call', 'web_search', 'web_fetch', 'chat', 'delete', 'rename', 'move'];
 
 /** @type {Record<string, AgentConfig>} */
 export const AGENTS = {
@@ -30,7 +30,7 @@ export const AGENTS = {
 Kamu READ-ONLY — DILARANG mengubah file, menjalankan command, atau menyentuh MCP.
 Kalau task butuh edit/bash, itu bukan tugasmu: selesai dengan SUMMARY yang menjelaskan temuan
 risetmu, jangan memaksakan aksi di luar kapasitasmu.`,
-    actions: ['read', 'list_dir', 'web_search', 'chat', 'remember'],
+    actions: ['read', 'list_dir', 'web_search', 'web_fetch', 'chat', 'remember'],
     mcpTools: [],      // tanpa MCP
     maxLoops: 12,
     search: true,
@@ -124,7 +124,7 @@ jangan memaksakan aksi di luar daftar itu. 'done' selalu boleh dipilih kapan pun
 
 // Ambil teks aturan search dari SYSTEM_PROMPT generic (source of truth tetap prompts/system.js)
 function getSearchRulesText() {
-  const marker = 'Setelah ACTION: web_search, baca snippet hasilnya.';
+  const marker = 'Setelah ACTION: web_search, baca hasilnya dan pilih langkah yang paling masuk akal.'
   const idx = SYSTEM_PROMPT.indexOf(marker);
   return idx === -1 ? '' : SYSTEM_PROMPT.slice(idx).trim();
 }

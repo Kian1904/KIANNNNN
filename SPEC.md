@@ -463,9 +463,9 @@ Cara test manual di Telegram (butuh `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USE
 
 Yang bisa dikerjakan berikutnya:
 
-1. ~~**Auto-routing + review rencana:**~~ ✅ SELESAI — `src/routing.js` (heuristik,
-   nol LLM), parity Telegram + auto-route (`M20`), lalu gerbang preview/
-approve/replan/cancel (`M22`). Baca seksi M19, M20, dan M22 di bawah.
+1. ~~**Auto-routing + review rencana + web research:**~~ ✅ SELESAI — heuristik
+   (`M19/M20`), preview/approve/replan/cancel (`M22`), dan `web_fetch` untuk
+   membaca sumber hasil search (`M23`). Baca seksi M19, M20, M22, dan M23.
 
 2. ~~**Aksi destruktif lain:**~~ ✅ SELESAI (`M21`) — `delete`, `rename`, `move`
    ada di `src/file-ops.js`. Termasuk fix `/rollback` yang dulu gak bisa
@@ -679,6 +679,57 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
+
+## M23 — Web Fetch untuk Riset Berbasis Halaman (2026-10-20)
+
+Riset sebelumnya hanya memakai snippet dari `Serper`/`Tavily`. Itu cukup untuk
+konsep umum, tapi gagal untuk cuaca, harga, status layanan, dan data lain yang
+snippet-nya tidak memuat angka/detail yang diminta. M23 menambah jalur membaca
+isi halaman sumber.
+
+### Action baru: `web_fetch`
+
+`src/web-fetch.js` menyediakan fetch tanpa dependency tambahan:
+
+- hanya URL `http`/`https`;
+- blokir loopback/private address dasar;
+- timeout default 12 detik;
+- batas body default 600 KB;
+- hanya konten teks/HTML/JSON/XML;
+- hapus `script`, `style`, tag HTML, dan decode entity dasar;
+- HTTP error, timeout, binary, dan body terlalu besar fail-closed;
+- hasil dipotong aman untuk konteks LLM.
+
+`src/plan.js` mem-parse format:
+
+```text
+REASONING: snippet belum cukup
+ACTION: web_fetch
+URL: https://contoh resmi.example/data
+```
+
+History merender isi halaman dengan strategi head + tail supaya navigasi panjang
+di awal tidak menutupi data cuaca/harga di bagian bawah.
+
+### Aturan riset yang fleksibel
+
+Prompt tidak lagi memaksa `web_fetch` setiap kali. Agent boleh:
+
+- langsung `done` kalau snippet sudah cukup;
+- `web_fetch` kalau butuh detail halaman;
+- search sekali lagi kalau sudut pandang query pertama kurang tepat;
+- menjawab jujur kalau sumber memang belum cukup.
+
+Sebagai safety net, setelah dua `web_search` tanpa fetch, runner mencoba sampai
+tiga URL kandidat (mendahulukan BMKG/domain resmi) agar model tidak berhenti di
+URL saja ketika membutuhkan data spesifik. Kandidat yang gagal dilewati.
+
+### Verifikasi M23
+
+- `tests/test-web-fetch.mjs`: **12 pass**, termasuk HTML cleanup, URL guard,
+  size limit, HTTP error, binary, timeout, dan parser `web_fetch`.
+- Live fetch BMKG: HTTP **200**, teks halaman berhasil dibaca.
+- Suite: **528 pass, 0 fail, 24 file**.
 
 ## M22 — Review Rencana + Self-Correcting Execution (2026-10-20)
 

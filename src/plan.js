@@ -56,7 +56,7 @@ export async function planStepWithRetry(askFn, ctx, { maxAttempts = 3, onRetry }
         systemPromptOverride: [
           ctx.systemPromptOverride || '',
           `\n\n[SISTEM: Balasan sebelumnya GAGAL diparse. MASALAHNYA: ${lastError.split('\n')[0]}`,
-          'Kamu WAJIB balas dengan format yang bener, mulai dengan baris REASONING: lalu ACTION: (satu dari: read, list_dir, edit, delete, rename, move, bash, web_search, mcp_call, remember, chat, done).',
+          'Kamu WAJIB balas dengan format yang bener, mulai dengan baris REASONING: lalu ACTION: (satu dari: read, list_dir, edit, delete, rename, move, bash, web_search, web_fetch, mcp_call, remember, chat, done).',
           'JANGAN balas dengan kalimat pembuka, penjelasan, atau markdown. Langsung formatnya.' + prev + ']',
         ].join(''),
       };
@@ -101,6 +101,14 @@ export function buildHistoryText(history) {
     if (h.action === 'web_search') {
       const truncated = h.summary.length > 800 ? `${h.summary.slice(0, 800)}... [truncated]` : h.summary;
       return `Langkah ${i + 1}: WEB_SEARCH "${h.query}" (via ${h.provider || 'gagal'}) — hasil:\n${truncated}`;
+    }
+    if (h.action === 'web_fetch') {
+      // Halaman cuaca/harga sering punya navigasi panjang di awal dan data
+      // penting di bagian bawah. Ambil head + tail, jangan head doang.
+      const truncated = h.summary.length > 8000
+        ? `${h.summary.slice(0, 3800)}\n...[bagian tengah dipotong]...\n${h.summary.slice(-3800)}`
+        : h.summary;
+      return `Langkah ${i + 1}: WEB_FETCH "${h.url}" — isi halaman:\n${truncated}`;
     }
     const stderrPart = h.result.stderr ? `, stderr: ${h.result.stderr.slice(0, 500)}` : '';
     return `Langkah ${i + 1}: BASH "${h.command}" — exit ${h.result.code}, stdout: ${h.result.stdout.slice(0, 300)}${stderrPart}`;
@@ -155,7 +163,7 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
   raw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
   const reasoningMatch = raw.match(/REASONING:\s*(.*)/);
   const reasoning = reasoningMatch ? reasoningMatch[1].trim() : '';
-  const actionMatch = raw.match(/ACTION:\s*(edit|bash|done|read|list_dir|remember|mcp_call|web_search|chat|delete|rename|move)/);
+  const actionMatch = raw.match(/ACTION:\s*(edit|bash|done|read|list_dir|remember|mcp_call|web_search|web_fetch|chat|delete|rename|move)/);
        dbg('raw LLM response:', raw.slice(0, 500) + (raw.length > 500 ? '...[truncated]' : ''));
 
   if (!actionMatch) {
@@ -232,6 +240,12 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
     const queryMatch = raw.match(/QUERY:\s*(.*)/);
     if (!queryMatch) throw stepError(`ACTION web_search tapi tidak ada QUERY.\n`, raw);
     return { action, reasoning, query: queryMatch[1].trim() };
+  }
+
+  if (action === 'web_fetch') {
+    const urlMatch = raw.match(/URL:\s*(https?:\/\/\S+)/i);
+    if (!urlMatch) throw stepError(`ACTION web_fetch tapi tidak ada URL.\n`, raw);
+    return { action, reasoning, url: urlMatch[1].trim() };
   }
 
   if (action === 'chat') {

@@ -89,6 +89,11 @@ REASONING: <alasan singkat>
 ACTION: web_search
 QUERY: <query pencarian singkat, 2-6 kata>
 
+Format web fetch (buka isi halaman dari URL hasil web search; pakai hanya kalau snippet tidak cukup):
+REASONING: <alasan singkat>
+ACTION: web_fetch
+URL: <URL http/https dari hasil web_search>
+
 Format chat (balasan singkat tanpa step ceremony, hanya untuk respons langsung ke user):
 REASONING: <alasan singkat>
 ACTION: chat
@@ -97,18 +102,18 @@ REPLY: <balasan kamu>`;
 // Aturan khusus web_search — hanya relevan untuk agent yang boleh search.
 const SEARCH_RULES = `
 
-Setelah ACTION: web_search, baca snippet hasilnya. Kalau sudah cukup buat jawab, langsung
-ACTION: done — SUMMARY wajib kamu tulis sendiri dari snippet itu, jangan pernah panggil tool
-apapun (termasuk tool bernama "summarize") untuk membuat SUMMARY, itu bukan fungsinya. Kalau
-snippet-nya kurang lengkap, boleh search sekali lagi dengan sudut pandang beda. Sistem akan
-kasih tau kalau kamu sudah di batas maksimal — jangan asumsikan sendiri kamu sudah di limit
-kalau sistem belum bilang begitu.
-SUMMARY hanya boleh berisi fakta yang benar-benar ada di teks snippet hasil search (title/url/isi
-snippet yang sudah di history). DILARANG menambahkan klaim, karakteristik, atau peringatan
-keamanan apapun yang TIDAK tertulis eksplisit di snippet itu — termasuk soal legalitas, izin, atau
-risiko, kecuali snippet-nya sendiri yang menyebutkan itu. Kalau snippet tidak cukup jelas untuk
-menjawab sesuatu, bilang terus terang "tidak disebutkan di hasil pencarian" — JANGAN menebak atau
-mengarang berdasarkan asumsi dari nama/kata kunci.`;
+Setelah ACTION: web_search, baca hasilnya dan pilih langkah yang paling masuk akal.
+Kalau hasilnya sudah cukup, kamu bisa langsung ACTION: done dan rangkum fakta yang ada.
+Kalau yang tersedia baru URL/snippet sementara user butuh detail dari halaman, pakai ACTION:
+web_fetch pada sumber yang paling relevan—utamakan sumber resmi. Kalau sudut pandang query
+pertama kurang tepat, boleh melakukan satu search lagi dengan query yang lebih baik; jangan
+mengulang query identik tanpa alasan. Setelah batas search tercapai, gunakan hasil yang ada,
+web_fetch bila masih berguna, atau jawab jujur kalau datanya belum cukup. Kamu tidak harus
+memakai web_fetch setiap kali; pilih berdasarkan kebutuhan informasi dan kualitas sumber.
+
+SUMMARY harus bersumber dari title, URL, snippet, atau teks halaman yang benar-benar sudah masuk
+ke history. Jangan mengarang angka atau detail yang tidak ada di sumber. Kalau sumber belum cukup
+jelas, bilang terus terang bahwa bagian itu belum disebutkan dan jangan menebak.`;
 
 // Agent generic (perilaku lama persis — semua aksi, termasuk web_search).
 export const SYSTEM_PROMPT = `${AGENT_CONSTITUTION.length > 0 ? constitutionText : ''}${BASE_BEHAVIOR}${ACTION_FORMAT}${SEARCH_RULES}`;
