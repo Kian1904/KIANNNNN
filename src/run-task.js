@@ -10,6 +10,7 @@ import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js
 import { callTool } from '../mcp/client.js';
 import { searchWeb } from './search.js';
 import { fetchWebPage } from './web-fetch.js';
+import { verifyAction, verifyCompletion } from './verifier.js';
 import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
 import { inspectTarget, describeTarget, rejectReason, applyFileOp } from './file-ops.js';
@@ -43,7 +44,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
   // --- Konfigurasi agent (null = generic, perilaku lama persis) ---
   const maxLoops = (agentConfig && agentConfig.maxLoops) || MAX_LOOPS;
-  const systemPromptOverride = agentConfig ? composeAgentPrompt(agentConfig, agentMd) : null;
+  let systemPromptOverride = agentConfig ? composeAgentPrompt(agentConfig, agentMd) : null;
   const toolsForAgent = agentConfig
     ? filterToolsForAgent(availableTools, agentConfig.mcpTools)
     : availableTools;
@@ -131,12 +132,19 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
     // --- DONE ---
     if (step.action === 'done') {
+      const completion = verifyCompletion(history, step.summary);
+      if (!completion.ok) {
+        print('error', `Belum boleh selesai: ${completion.reason}`);
+        // Jangan percaya klaim done. Minta model satu langkah koreksi/verifikasi.
+        systemPromptOverride = `${systemPromptOverride || ''}\n\n[SISTEM VERIFIER: Klaim selesai DITOLAK: ${completion.reason}. Jangan ACTION: done dulu. Periksa ulang hasil aksi terakhir dan pilih aksi verifikasi/perbaikan yang konkret.]`;
+        continue;
+      }
       actionIndicator('done');
       print('done', step.summary);
       if (threadId) {
-        logStep({ threadId, role: 'assistant', content: step.summary, actionType: 'done', reasoning: step.reasoning, approved: true });
+        logStep({ threadId, role: 'assistant', content: step.summary, actionType: 'done', reasoning: step.reasoning, approved: true, verified: true });
       } else {
-        logStep({ task: instruction, actionType: 'done', detail: null, reasoning: step.reasoning, approved: true });
+        logStep({ task: instruction, actionType: 'done', detail: null, reasoning: step.reasoning, approved: true, verified: true });
       }
       blank();
       return step.summary;
@@ -338,11 +346,12 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         const page = await fetchWebPage(step.url);
         if (!page.ok) {
           print('search_err', `Fetch gagal (${page.error})${page.status ? ` HTTP ${page.status}` : ''}`);
-          history.push({ action: 'web_fetch', url: step.url, summary: `ERROR: ${page.error}${page.status ? ` HTTP ${page.status}` : ''}` });
+          history.push({ action: 'web_fetch', url: step.url, summary: `ERROR: ${page.error}${page.status ? ` HTTP ${page.status}` : ''}`, verified: false, error: page.error });
         } else {
           const summary = page.text || '(halaman kosong)';
           printBlock(summary.slice(0, 6000), 2);
-          history.push({ action: 'web_fetch', url: page.url, summary: summary.slice(0, 30000) });
+          const fetchVerification = verifyAction({ action: 'web_fetch', text: summary });
+          history.push({ action: 'web_fetch', url: page.url, summary: summary.slice(0, 30000), verified: fetchVerification.ok, error: fetchVerification.ok ? undefined : fetchVerification.reason });
           if (threadId) {
             logStep({ threadId, role: 'assistant', content: `Fetched: ${page.url}`, actionType: 'web_fetch', detail: { url: page.url, status: page.status, chars: summary.length }, reasoning: step.reasoning });
           }
@@ -414,9 +423,11 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         return `Edit gagal: ${err.message}`;
       }
 
+      const editVerification = verifyAction({ action: 'edit', target, expectedContent: step.new_content, actualContent: fs.readFileSync(target, 'utf8') });
+      print(editVerification.ok ? 'verify_ok' : 'error', editVerification.reason);
       print('edit_ok', `${target} ${existedBefore ? 'diupdate' : 'dibuat'}.`);
       lastTarget = target;
-      history.push({ action: 'edit', target, approved: true });
+      history.push({ action: 'edit', target, approved: true, verified: editVerification.ok, error: editVerification.ok ? undefined : editVerification.reason });
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `File edited: ${target}`, actionType: 'edit', detail: { target, applied: true, isNewFile: !existedBefore }, reasoning: step.reasoning });
       }
@@ -550,6 +561,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       }
 
       const result = await runCommand(step.command);
+      const bashVerification = verifyAction({ action: 'bash', result });
+      print(bashVerification.ok ? 'verify_ok' : 'error', bashVerification.reason);
       print('exit_code', `${result.code}  stdout: ${result.stdout || '(kosong)'}`);
       if (result.stderr) print('stderr', result.stderr);
 
@@ -558,7 +571,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       } else {
         logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider, ...result }, reasoning: step.reasoning, approved: true });
       }
-      history.push({ action: 'bash', command: step.command, approved: true, result });
+      history.push({ action: 'bash', command: step.command, approved: true, result, verified: bashVerification.ok, error: bashVerification.ok ? undefined : bashVerification.reason });
       continue;
     }
   }

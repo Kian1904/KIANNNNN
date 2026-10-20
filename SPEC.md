@@ -463,9 +463,9 @@ Cara test manual di Telegram (butuh `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USE
 
 Yang bisa dikerjakan berikutnya:
 
-1. ~~**Auto-routing + review rencana + web research:**~~ ✅ SELESAI — heuristik
-   (`M19/M20`), preview/approve/replan/cancel (`M22`), dan `web_fetch` untuk
-   membaca sumber hasil search (`M23`). Baca seksi M19, M20, M22, dan M23.
+1. ~~**Auto-routing + review + web research + verification:**~~ ✅ SELESAI — heuristik
+   (`M19/M20`), preview/approve/replan/cancel (`M22`), `web_fetch` (`M23`), dan
+   post-action verification (`M24`). Baca seksi M19, M20, M22, M23, dan M24.
 
 2. ~~**Aksi destruktif lain:**~~ ✅ SELESAI (`M21`) — `delete`, `rename`, `move`
    ada di `src/file-ops.js`. Termasuk fix `/rollback` yang dulu gak bisa
@@ -679,6 +679,42 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
+
+## M24 — Post-Action Verification: Agent Gak Boleh Asal Bilang Done (2026-10-21)
+
+M24 menutup masalah paling penting setelah M23: agent bisa menjalankan aksi,
+kemudian mengklaim `done` tanpa membuktikan hasil aktualnya.
+
+### Aturan baru
+
+`src/verifier.js` menjadi satu sumber aturan bukti:
+
+- `edit`: baca ulang file dan cocokkan isi aktual dengan isi yang diminta;
+- `bash`: wajib `ok:true` dan exit code `0`;
+- `web_fetch`: isi halaman harus benar-benar terbaca;
+- `web_search`: hasil sumber harus tersedia;
+- `read`/`list_dir`: error eksplisit tidak boleh dianggap berhasil;
+- `verifyCompletion`: summary kosong ditolak dan satu aksi dengan `verified:false`
+  menutup gerbang `done`.
+
+`run-task.js` sekarang:
+
+- menandai hasil edit/bash/fetch dengan `verified`;
+- mencatat bukti/verifikasi ke log;
+- menampilkan `VERIFY_OK` atau error verifikasi;
+- menolak `ACTION: done` jika masih ada aksi gagal atau summary kosong;
+- mengirim instruksi koreksi ke model, bukan menerima klaim sukses mentah.
+
+### Fail-closed
+
+Verifier tidak mengarang hasil. Ia hanya menilai output aktual yang diberikan
+runner. Kalau file hilang, exit code non-zero, fetch kosong, atau aksi gagal,
+agent tidak boleh menutup task sebagai sukses.
+
+### Verifikasi M24
+
+- `tests/test-verifier.mjs`: **13 pass**.
+- Suite: **541 pass, 0 fail, 25 file**.
 
 ## M23 — Web Fetch untuk Riset Berbasis Halaman (2026-10-20)
 
