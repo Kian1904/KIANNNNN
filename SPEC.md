@@ -462,10 +462,10 @@ Cara test manual di Telegram (butuh `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USE
 
 Yang bisa dikerjakan berikutnya:
 
-1. **Auto-routing:**
-   - Bikin `/squad` kepanggil OTOMATIS buat task kompleks (multi-intent), tanpa
-     user harus ketik `/squad`. Pakai `classifyIntent` di `src/intent.js` atau
-     heuristic: task panjang / ada "lalu"/"setelah"/"riset X lalu Y" -> squad.
+1. ~~**Auto-routing:**~~ ✅ SELESAI dua tahap — `src/routing.js` (heuristik,
+   nol LLM) + `/route` di REPL (`6de3b0f`), lalu parity Telegram + auto-route
+   di jalur pesan biasa (`M20`). Baca seksi M19 + M20 di bawah.
+   Sisa yang belum: preview rencana squad yang dedicated sebelum eksekusi.
 
 2. **Paralel dalam wave (optimalisasi):**
    - Setelah `askApproval` dibikin concurrency-safe (mutex/queue), tukar inner
@@ -484,6 +484,118 @@ Yang bisa dikerjakan berikutnya:
 
 5. ~~**Test MCP sehat lagi (dari M17):**~~ ✅ SELESAI (2026-10-19) — lihat
    FINDING MCP yang sudah RESOLVED.
+
+## M20 — Parity Telegram + Guard Output + Intent Heuristik (2026-10-20)
+
+Audit "apa yang kurang dari agent ini" menghasilkan 4 item yang bisa
+dikerjakan (handle-able). Semua selesai di commit ini.
+
+### 1. `bash` — maxBuffer & output bocor (BUG, bukan sekadar kurang)
+
+Default Node `maxBuffer` = 1MB. Command dengan output lebih besar
+**GAGAL** dengan `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`:
+
+- Pesan errornya cryptic → agent nyimpulin command-nya rusak, padahal cuma
+  outputnya kegedean. Ini misdiagnosis, bukan error biasa.
+- Jebakan KEDUA yang ketangkep waktu tes: jalur SUKSES gak ikut dipotong.
+  `head -c 2000000 /dev/zero` lolos **utuh 2MB** ke LLM. Mahal + bikin
+  konteks kotor.
+
+Fix (`src/bash.js`):
+- `MAX_BUFFER_BYTES = 8MB` — ceiling naik, jadi command wajar gak pernah kena.
+- `MAX_OUTPUT_CHARS = 20000` — stdout & stderr **dua-duanya** dipotong di
+  jalur sukses DAN error, dengan penanda `[...TRUNCATED n karakter...]`.
+- Field `truncated: true` + `buffered: true` biar pemanggil bisa bedain
+  "output kepotong" vs "command gagal".
+- **Timeout dibaca PER-PANGGILAN** (`process.env.K_SROUTER_BASH_TIMEOUT_MS`
+  dibaca di dalam `runCommand`, bukan di-`const` pas import). Sebelumnya env
+  yang diubah setelah import gak ngefek — ketangkep tes timeout.
+- Default timeout 120s (`K_SROUTER_BASH_TIMEOUT_MS` buat override).
+- Kena maxBuffer → balikin `buffered:true` + pesan jelas, BUKAN throw mentah.
+
+### 2. `read` — buta bagian file di atas 2000 karakter (BUG)
+
+Dulu: file >2000 char dipotong `[...TRUNCATED]` dan **gak ada cara** baca
+sisanya. Bug di baris 500 = invisible selamanya. Agent ngerjain file besar
+dengan mata setengah ketutup.
+
+Fix:
+- `readFileRange(target, offset, limit)` di `src/utils/fs.js` — baca
+  **jendela baris** (default 1..400, maks 2000 baris), output bernomor baris,
+  plus footer yang ngasih tau sisa baris + `offset=` buat lanjut.
+- `plan.js` parse `OFFSET:` / `LIMIT:` dari respons model. Nilai gak masuk
+  akal (negatif/0) **DIBUANG**, bukan dipaksa jadi angka aneh — biar
+  `readFileRange` pakai default-nya. Batas atas 2000 baris.
+- Prompt `src/prompts/system.js` dikasih contoh `OFFSET`/`LIMIT`.
+- `readFileSafe` TETAP ada (dipakai jalur lain) — `readFileRange` yang baru,
+  bukan ganti total.
+
+### 3. `intent.js` — hemat 1 LLM call per input
+
+Dulu **SETIAP** input user (termasuk "halo kaccan") manggil LLM cuma buat
+nentuin casual/task/hybrid. Itu satu panggilan penuh SEBELUM kerjaan mulai,
+dan input teks doang jadi 2 call (classify + jawab).
+
+Fix: `classifyIntentHeuristic()` — regex murni, **nol** panggilan LLM buat
+kasus yang jelas. LLM cuma dipanggil kalau heuristiknya beneran ragu.
+Signature `classifyIntent(input, askFn)` TIDAK berubah → caller aman.
+
+Aturan yang dipakai (urutannya penting, ada tesnya):
+- Hybrid (tanya + suruh) dicek **sebelum** task. Kalau task duluan,
+  "tolong jelasin kenapa error lalu perbaiki" keburu dicap task.
+- Realtime **wajib 2 syarat**: kata waktu + konteks cari info. Ini nutup bug
+  nyata — kata `"tadi"` doang dulu bikin "aku tadi mimpi aneh" di-route ke
+  agent otonom. "tadi" itu waktu lampau, bukan minta info terkini.
+- Ragu → fallback **`casual`**, bukan `task`. Salah ke `task` = satu panggilan
+  agent otonom penuh (mahal); salah ke `casual` = user cuma ngulang. Prinsip
+  sama kayak routing: salah ke yang mahal itu boros.
+- `confident:false` + `reason` dikembalikan biar caller bisa mutusin.
+
+Hasil: dari 23 kalimat uji, **4** yang manggil LLM (dulu 23). 23/23 tebakan
+tetap benar.
+
+### 4. Telegram — parity sama REPL
+
+Repo ini dua surface (REPL + Telegram). Telegram ketinggalan fitur baru —
+`/route` **nol kayu** (grep balik 0). Dari HP user gak bisa kontrol apa pun.
+
+Fix (`src/telegram-bot.js`):
+- `/route` — status + `on` / `off`.
+- `/route test <task>` — verdict routing **pakai `routeTask()` asli**, bukan
+  logika tiruan.
+- **Auto-routing ikut jalan di jalur pesan biasa**, bukan cuma command pasif.
+  Task kompleks + `autoRoute` ON → langsung squad. Yang ragu → tanya dulu,
+  jangan asal jalan.
+- `describeRouting` bisa di-inject (buat tes).
+- `/help` nyebut `/route` + `/route test` + `/mode`.
+
+### Bug yang ketangkep lewat TES, bukan lewat baca kode
+
+Semua ini kebukti cuma karena dijalanin beneran:
+
+| Bug | Ketangkep oleh |
+|---|---|
+| `verdict.reasons` → field-nya `reason` (singular) | jalur squad Telegram **crash** |
+| `describeRouting(verdict)` → nerima objek, bukan string | `/route test` error |
+| `executePlan(p, ctx, deps)` → approval lewat `ctx.askApproval` | gue pake `onApproval` (salah) |
+| stdout 2MB lolos utuh | tes bash jalur sukses |
+| timeout env gak kebaca setelah import | tes `sleep 6` |
+| `LIMIT: -5` → jadi `1` baris | tes parser planStep |
+
+Pelajaran yang diulang dari sesi lalu: **tes yang cuma baca teks file bisa
+PASS padahal runtime-nya crash.** `test-telegram-route.mjs` makanya ngejalanin
+`handleMessage` yang sama kayak pesan Telegram asli masuk.
+
+### Test
+
+- `tests/test-intent.mjs` — 11 pass (tebakan + hitungan panggilan LLM).
+- `tests/test-bash-read.mjs` — 42 pass (maxBuffer, truncate, timeout, range,
+  parser planStep, guard `.env` masih hidup).
+- `tests/test-telegram-route.mjs` — 34 pass (verdict asli, auto-route ON/OFF,
+  ragu harus tanya, casual gak di-route).
+- `run-suite.sh` diperbarui: rekap per-file + daftar file gagal.
+- **Total suite: 388 pass, 0 fail, 21 file** (naik dari 307).
+
 
 ## FINDING Terbuka
 

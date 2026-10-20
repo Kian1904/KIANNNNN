@@ -110,7 +110,17 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
   if (action === 'read') {
     const targetMatch = raw.match(/TARGET:\s*(.*)/);
     if (!targetMatch) throw new Error(`ACTION read tapi tidak ada TARGET.\n--- raw ---\n${raw}`);
-    return { action, reasoning, target: targetMatch[1].trim() };
+    const offsetMatch = raw.match(/OFFSET:\s*(-?\d+)/);
+    const limitMatch = raw.match(/LIMIT:\s*(-?\d+)/);
+    const step = { action, reasoning, target: targetMatch[1].trim() };
+    // Nilai gak masuk akal (negatif / nol) DIBUANG, bukan dipaksa jadi angka
+    // aneh — biar readFileRange pakai default-nya sendiri. Batas atas 2000
+    // baris biar satu halaman gak pernah membanjiri konteks.
+    const offsetRaw = offsetMatch ? Number(offsetMatch[1]) : NaN;
+    const limitRaw = limitMatch ? Number(limitMatch[1]) : NaN;
+    if (Number.isFinite(offsetRaw) && offsetRaw > 0) step.offset = offsetRaw;
+    if (Number.isFinite(limitRaw) && limitRaw > 0) step.limit = Math.min(limitRaw, 2000);
+    return step;
   }
 
   if (action === 'list_dir') {

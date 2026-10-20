@@ -35,6 +35,12 @@ Format baca isi file:
 REASONING: <alasan singkat>
 ACTION: read
 TARGET: <path file yang mau dibaca>
+OFFSET: <opsional, baris awal 1-indexed, default 1>
+LIMIT: <opsional, jumlah baris, default 400, maks 5000>
+
+Kalau hasil read berakhir dengan "[...ADA N BARIS LAGI]", file itu kepotong.
+Lanjutkan dengan read yang sama + set OFFSET ke baris lanjutan yang disebut.
+JANGAN ngaku file udah kebaca penuh kalau masih ada baris tersisa.
 
 Format list isi direktori:
 REASONING: <alasan singkat>

@@ -29,6 +29,7 @@ import { discoverTools } from '../mcp/client.js';
 import { loadAgentMd } from './utils/fs.js';
 import { isDangerous } from './approval.js';
 import { MODES, DESTRUCTIVE_ACTIONS, normalizeMode, decide, MODE_DESCRIPTIONS } from './modes.js';
+import { routeTask, describeRouting } from './routing.js';
 
 /** Waktu tunggu jawaban approval sebelum otomatis ditolak (ms). */
 export const APPROVAL_TIMEOUT_MS = 120_000;
@@ -51,6 +52,11 @@ const HELP_TEXT = `🤖 K-sRouter Bot — perintah:
 /agent <nama> — pilih agent: ${Object.keys({}).join('')}
 /plan <task> — lihat rencana squad TANPA eksekusi
 /squad <task> — eksekusi multi-agent (plan → wave → ringkasan)
+/mode — lihat mode approval aktif
+/mode <safe|wellwell|yolo> — ganti mode approval
+/route — lihat status auto-routing ke squad
+/route <on|off> — nyalain/matiin auto-routing
+/route test <task> — cek task ini bakal di-route ke mana
 /stats — statistik sesi ini
 /clear — mulai thread baru
 /help — bantuan ini
@@ -92,6 +98,7 @@ export function createTelegramBot({
   discoverTools: toolsFn = discoverTools,
   loadAgentMd: agentMdFn = loadAgentMd,
   isDangerous: dangerFn = isDangerous,
+  describeRouting: describeRoutingFn = describeRouting,
 } = {}) {
   if (!botToken) throw new Error('botToken wajib diisi.');
 
@@ -115,6 +122,10 @@ export function createTelegramBot({
 
   // Mode approval buat sesi bot ini (default SAFE, bisa dari env).
   let approvalMode = normalizeMode(process.env.K_SROUTER_MODE) || MODES.SAFE;
+
+  // Auto-routing ke squad. Default OFF — samain sama REPL biar gak ada
+  // kejutan: task lo tiba-tiba ngejalanin 5 agent cuma karena ada kata "lalu".
+  let autoRoute = process.env.K_SROUTER_AUTOROUTE === '1';
 
   /** @param {number} chatId @param {string} text */
   async function sendMessage(chatId, text) {
@@ -268,6 +279,35 @@ export function createTelegramBot({
       return sendMessage(chatId, 'Mode SAFE aktif - semua aksi minta approval satu-satu.');
     }
 
+    if (cmd === 'route') {
+      if (!arg) {
+        return sendMessage(chatId,
+          `🔀 Auto-routing: ${autoRoute ? 'ON' : 'OFF'}\n\n`
+          + `Kalau ON, task yang sinyalnya kuat langsung diarahkan ke /squad tanpa lo ketik.\n`
+          + `Kalau ragu, bot bakal tanya dulu — gak langsung jalan.\n\n`
+          + `Kontrol: /route on | /route off | /route test <task>`);
+      }
+
+      const sub = arg.split(/\s+/)[0].toLowerCase();
+
+      if (sub === 'on') {
+        autoRoute = true;
+        return sendMessage(chatId, '🔀 Auto-routing ON — task kompleks otomatis masuk jalur squad. Yang ragu tetap ditanya dulu.');
+      }
+      if (sub === 'off') {
+        autoRoute = false;
+        return sendMessage(chatId, '🔀 Auto-routing OFF — task selalu jalan single-agent kecuali lo ketik /squad sendiri.');
+      }
+      if (sub === 'test') {
+        const sample = arg.slice(sub.length).trim();
+        if (!sample) return sendMessage(chatId, 'Pakai: /route test <task> — contoh: /route test riset cara kerja X lalu bikin kodenya');
+        // describeRouting nerima OBJEK verdict, bukan string — jadi route dulu.
+        return sendMessage(chatId, describeRoutingFn(routeTask(sample)));
+      }
+
+      return sendMessage(chatId, `Sub-perintah "${sub}" gak dikenal. Pakai: on | off | test <task>`);
+    }
+
     if (cmd === 'stats') {
       const prov = Object.entries(stats.byProvider).map(([k, v]) => `${k}=${v}`).join(', ') || '—';
       const act = Object.entries(stats.byAction).map(([k, v]) => `${k}=${v}`).join(', ') || '—';
@@ -333,10 +373,36 @@ export function createTelegramBot({
       if (intent === 'casual') {
         const response = await casualFn(text, getConv(getThreadId(), 10), stats, trackProvider, trackAction);
         await sendMessage(chatId, response);
-      } else {
-        const result = await runSingle(text, chatId);
-        await sendMessage(chatId, result);
+        return;
       }
+
+      // Auto-routing: cuma buat task, dan cuma kalau sinyalnya KUAT.
+      // Yang ragu sengaja gak di-route di sini — bot nanya dulu, jangan
+      // tiba-tiba ngejalanin 5 agent tanpa izin. Prinsipnya sama kayak REPL.
+      if (autoRoute) {
+        const verdict = routeTask(text);
+        if (verdict.route === 'squad' && !verdict.shouldAsk) {
+          await sendMessage(chatId, `🔀 Auto-route → squad (${verdict.confidence})\n• ${verdict.reason}`);
+          const p = await planFn(text);
+          if (p.ok && p.tasks.length > 0) {
+            await sendMessage(chatId, `🚀 Squad: ${p.tasks.length} task → ${p.tasks.map(t => `${t.role}(#${t.id})`).join(' → ')}`);
+            const exec = await execFn(p, {
+              originalInstruction: text,
+              agentMd: agentMdFn(), availableTools,
+              threadId: getThreadId(),
+              stats, trackProvider, trackAction, isDangerous: dangerFn,
+              askApproval: makeAskApproval(chatId),
+            });
+            log({ threadId: getThreadId(), role: 'assistant', content: exec.finalSummary, actionType: 'done', approved: true });
+            return sendMessage(chatId, `✅ Ringkasan squad:\n\n${exec.finalSummary}`);
+          }
+        } else if (verdict.route === 'squad' && verdict.shouldAsk) {
+          await sendMessage(chatId, `🔀 Kelihatannya butuh squad (${verdict.confidence}), tapi gue gak yakin:\n• ${verdict.reason}\n\nKalau memang mau multi-agent: /squad ${text}`);
+        }
+      }
+
+      const result = await runSingle(text, chatId);
+      await sendMessage(chatId, result);
     } catch (err) {
       console.error('[telegram-bot] Error:', err);
       await sendMessage(chatId, `Terjadi error: ${err.message}`).catch(() => {});

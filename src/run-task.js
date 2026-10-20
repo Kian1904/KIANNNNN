@@ -10,7 +10,7 @@ import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js
 import { callTool } from '../mcp/client.js';
 import { searchWeb } from './search.js';
 import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
-import { readFileSafe, listDirSafe, isSafePath } from './utils/fs.js';
+import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
 import { composeAgentPrompt, filterToolsForAgent } from './agents.js';
 
 // M12 — Extended MAX_LOOPS
@@ -124,13 +124,17 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     // --- READ ---
     if (step.action === 'read') {
       actionIndicator('read', step.target);
-      const content = readFileSafe(step.target);
-      const preview = content.length > 2000
-        ? content.slice(0, 2000) + '\n[...TRUNCATED]'
-        : content;
-      print('read', step.target);
+      // Offset/limit opsional dari model: kalau dia mau lanjut baca file gede,
+      // dia bisa set step.limit + step.offset. Default 400 baris dengan nomor
+      // baris — biar bug di baris 500 KELIHATAN, gak ketutup truncate 2000 char.
+      const r = readFileRange(step.target, step.offset || 1, step.limit || 400);
+      const preview = r.content;
+      const label = r.ok && r.totalLines > (r.end - r.start + 1)
+        ? `${step.target} (baris ${r.start}-${r.end} dari ${r.totalLines})`
+        : step.target;
+      print('read', label);
       printBlock(preview);
-      history.push({ action: 'read', target: step.target, content: preview });
+      history.push({ action: 'read', target: step.target, content: preview, range: { start: r.start, end: r.end, total: r.totalLines } });
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `Read file: ${step.target}\n${preview}`, actionType: 'read', reasoning: step.reasoning });
       }
