@@ -1,6 +1,7 @@
 // lib/ui.js — TUI utilities: word wrap, header, consistent output
+import chalk from 'chalk';
 
-const B = { tl:'╭', tr:'╮', bl:'╰', br:'╯', h:'─', v:'│' };
+const B = { tl:'\u256D', tr:'\u256E', bl:'\u2570', br:'\u256F', h:'\u2500', v:'\u2502' };
 const LABEL_W = 11;
 
 function w() { return Math.min(process.stdout.columns || 80, 100); }
@@ -30,12 +31,12 @@ export function wrap(text, width) {
 
 export function header(model, tools) {
   const width = w();
-  const line1 = `K-sRouter  ·  ${model}`;
-  const line2 = tools && tools.length ? `tools: ${tools.join(', ')}` : null;
+  const line1 = 'K-sRouter  \u00B7  ' + model;
+  const line2 = tools && tools.length ? 'tools: ' + tools.join(', ') : null;
   console.log('');
   console.log(B.tl + B.h.repeat(width - 2) + B.tr);
-  console.log(`${B.v}  ${pad(line1, width - 4)}  ${B.v}`);
-  if (line2) console.log(`${B.v}  ${pad(line2, width - 4)}  ${B.v}`);
+  console.log(B.v + '  ' + pad(line1, width - 4) + '  ' + B.v);
+  if (line2) console.log(B.v + '  ' + pad(line2, width - 4) + '  ' + B.v);
   console.log(B.bl + B.h.repeat(width - 2) + B.br);
   console.log('');
 }
@@ -55,48 +56,49 @@ const LABELS = {
   web_search:'WEB SEARCH', sources:'SUMBER', search_err:'SEARCH ERROR',
 };
 
-export function print(type, text = '') {
+export function print(type, text) {
+  text = text || '';
   const label = pad(LABELS[type] || String(type).toUpperCase(), LABEL_W);
   const textW = w() - LABEL_W - 5;
   const lines = wrap(String(text), textW);
   const indent = '  ' + ' '.repeat(LABEL_W + 2);
-  console.log(`  ${label}  ${lines[0]}`);
+  console.log('  ' + label + '  ' + lines[0]);
   for (let i = 1; i < lines.length; i++) {
     console.log(indent + lines[i]);
   }
 }
 
-export function printBlock(text, indentN = 4) {
+export function printBlock(text, indentN) {
+  indentN = indentN || 4;
   const sp = ' '.repeat(indentN);
   for (const line of wrap(String(text), w() - indentN)) {
     console.log(sp + line);
   }
 }
 
-// Chat-style UI functions
 export function printUserMessage(text) {
   const width = w();
-  const lines = wrap(String(text), width - 10); // 10 chars for "You: " prefix and padding
+  const lines = wrap(String(text), width - 10);
   console.log('');
-  console.log('╭' + '─'.repeat(width - 2) + '╮');
-  console.log('│ You: ' + lines[0].padEnd(width - 8) + ' │');
+  console.log('\u256D' + '\u2500'.repeat(width - 2) + '\u256E');
+  console.log('\u2502 You: ' + lines[0].padEnd(width - 8) + ' \u2502');
   for (let i = 1; i < lines.length; i++) {
-    console.log('│      ' + lines[i].padEnd(width - 8) + ' │');
+    console.log('\u2502      ' + lines[i].padEnd(width - 8) + ' \u2502');
   }
-  console.log('╰' + '─'.repeat(width - 2) + '╯');
+  console.log('\u2570' + '\u2500'.repeat(width - 2) + '\u256F');
   console.log('');
 }
 
 export function printAssistantMessage(text) {
   const width = w();
-  const lines = wrap(String(text), width - 15); // 15 chars for "KIANNNNN: " prefix and padding
+  const lines = wrap(String(text), width - 15);
   console.log('');
-  console.log('╭' + '─'.repeat(width - 2) + '╮');
-  console.log('│ KIANNNNN: ' + lines[0].padEnd(width - 13) + ' │');
+  console.log('\u256D' + '\u2500'.repeat(width - 2) + '\u256E');
+  console.log('\u2502 KIANNNNN: ' + lines[0].padEnd(width - 13) + ' \u2502');
   for (let i = 1; i < lines.length; i++) {
-    console.log('│          ' + lines[i].padEnd(width - 13) + ' │');
+    console.log('\u2502          ' + lines[i].padEnd(width - 13) + ' \u2502');
   }
-  console.log('╰' + '─'.repeat(width - 2) + '╯');
+  console.log('\u2570' + '\u2500'.repeat(width - 2) + '\u256F');
   console.log('');
 }
 
@@ -104,28 +106,74 @@ export function printSystemMessage(text) {
   const width = w();
   const lines = wrap(String(text), width - 10);
   console.log('');
-  console.log('┌' + '─'.repeat(width - 2) + '┐');
-  console.log('│ SYS: ' + lines[0].padEnd(width - 8) + ' │');
+  console.log('\u250C' + '\u2500'.repeat(width - 2) + '\u2510');
+  console.log('\u2502 SYS: ' + lines[0].padEnd(width - 8) + ' \u2502');
   for (let i = 1; i < lines.length; i++) {
-    console.log('│      ' + lines[i].padEnd(width - 8) + ' │');
+    console.log('\u2502      ' + lines[i].padEnd(width - 8) + ' \u2502');
   }
-  console.log('└' + '─'.repeat(width - 2) + '┘');
+  console.log('\u2514' + '\u2500'.repeat(width - 2) + '\u2518');
   console.log('');
 }
 
-export function printList(items, currentKey = null) {
-  items.forEach((item, i) => {
-    const mark = item.key === currentKey ? '●' : ' ';
-    console.log(`  ${mark} ${i + 1}. ${item.label}`);
+export function printList(items, currentKey) {
+  items.forEach(function(item, i) {
+    const mark = item.key === currentKey ? '\u25CF' : ' ';
+    console.log('  ' + mark + ' ' + (i + 1) + '. ' + item.label);
   });
 }
 
 export function sep() { console.log('  ' + B.h.repeat(w() - 4)); }
 export function blank() { console.log(''); }
 
-export const PROMPT = '  │ > ';
+// Tool-call indicators (colored prefixes ala Qwen Code / Antigravity)
+var ACTION_ICONS = {
+  read:       { icon: '\uD83D\uDCD6', color: 'cyan' },
+  list_dir:   { icon: '\uD83D\uDCC2', color: 'cyan' },
+  edit:       { icon: '\u270F\uFE0F', color: 'yellow' },
+  bash:       { icon: '\u26A1', color: 'red' },
+  mcp_call:   { icon: '\uD83D\uDD0C', color: 'magenta' },
+  web_search: { icon: '\uD83D\uDD0D', color: 'blue' },
+  remember:   { icon: '\uD83D\uDCBE', color: 'green' },
+  done:       { icon: '\u2705', color: 'green' },
+  chat:       { icon: '\uD83D\uDCAC', color: 'white' },
+  blocked:    { icon: '\uD83D\uDEAB', color: 'red' },
+  thinking:   { icon: '\uD83E\uDDE0', color: 'gray' },
+};
 
-export const SLASH_COMMANDS = [
+export function actionIndicator(action, detail) {
+  var meta = ACTION_ICONS[action] || { icon: '\u25B6', color: 'white' };
+  var fn = chalk[meta.color] || chalk.white;
+  var label = String(action).toUpperCase().padEnd(10);
+  var d = detail ? ' ' + chalk.dim(detail) : '';
+  console.log('  ' + meta.icon + ' ' + fn.bold(label) + d);
+}
+
+export function banner(version, model, agentCount, toolCount) {
+  var width = w();
+  var inner = width - 4;
+  var lines = [
+    chalk.bold.cyan('  KIANNNNN v' + version),
+    chalk.dim('  Multi-Agent CLI Orchestrator'),
+    '',
+    '  ' + chalk.bold('Model:') + '   ' + chalk.green(model),
+    '  ' + chalk.bold('Agents:') + '  ' + agentCount + ' registered',
+    '  ' + chalk.bold('MCP:') + '     ' + toolCount + ' tool' + (toolCount !== 1 ? 's' : '') + ' available',
+  ];
+  console.log('');
+  console.log(chalk.cyan('  \u256D' + '\u2500'.repeat(inner) + '\u256E'));
+  for (var i = 0; i < lines.length; i++) {
+    var l = lines[i];
+    var stripped = l.replace(/\u001b\[[0-9;]*m/g, '');
+    var padLen = Math.max(0, inner - stripped.length - 1);
+    console.log(chalk.cyan('  \u2502') + l + ' '.repeat(padLen) + chalk.cyan('\u2502'));
+  }
+  console.log(chalk.cyan('  \u2570' + '\u2500'.repeat(inner) + '\u256F'));
+  console.log('');
+}
+
+export var PROMPT = '  \u2502 > ';
+
+export var SLASH_COMMANDS = [
   { cmd: '/exit',     desc: 'keluar dari K-sRouter' },
   { cmd: '/rollback', desc: 'restore file ke snapshot sebelumnya' },
   { cmd: '/model',    desc: 'switch atau lihat model aktif' },
@@ -134,9 +182,9 @@ export const SLASH_COMMANDS = [
 ];
 
 export function completer(line) {
-  const cmds = SLASH_COMMANDS.map(c => c.cmd);
+  var cmds = SLASH_COMMANDS.map(function(c) { return c.cmd; });
   if (line.startsWith('/')) {
-    const hits = cmds.filter(c => c.startsWith(line));
+    var hits = cmds.filter(function(c) { return c.startsWith(line); });
     return [hits.length ? hits : cmds, line];
   }
   return [[], line];

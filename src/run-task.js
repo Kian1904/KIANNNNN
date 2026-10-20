@@ -9,7 +9,7 @@ import { runCommand } from './bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js';
 import { callTool } from '../mcp/client.js';
 import { searchWeb } from './search.js';
-import { print, printBlock, sep, blank } from './ui.js';
+import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, listDirSafe, isSafePath } from './utils/fs.js';
 import { composeAgentPrompt, filterToolsForAgent } from './agents.js';
 
@@ -89,6 +89,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
     // --- DONE ---
     if (step.action === 'done') {
+      actionIndicator('done');
       print('done', step.summary);
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: step.summary, actionType: 'done', reasoning: step.reasoning, approved: true });
@@ -101,6 +102,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
     // --- CHAT (no step header, no ceremony) ---
     if (step.action === 'chat') {
+      actionIndicator('chat');
       blank();
       printBlock(step.reply);
       blank();
@@ -121,6 +123,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
     // --- READ ---
     if (step.action === 'read') {
+      actionIndicator('read', step.target);
       const content = readFileSafe(step.target);
       const preview = content.length > 2000
         ? content.slice(0, 2000) + '\n[...TRUNCATED]'
@@ -136,6 +139,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
     // --- LIST_DIR ---
     if (step.action === 'list_dir') {
+      actionIndicator('list_dir', step.target);
       const listing = listDirSafe(step.target);
       const dir = (step.target || '.').trim();
       print('list_dir', dir);
@@ -149,6 +153,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
     // --- REMEMBER ---
     if (step.action === 'remember') {
+      actionIndicator('remember', step.key);
       saveDecision({ key: step.key, value: step.value, context: instruction });
       print('remember', `${step.key}: ${step.value}`);
       history.push({ action: 'remember', key: step.key, value: step.value });
@@ -160,6 +165,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
     // --- MCP_CALL ---
     if (step.action === 'mcp_call') {
+      actionIndicator('mcp_call', step.tool);
       print('mcp', `Memanggil tool: ${step.tool}`);
       try {
         const result = await callTool(step.tool, step.toolArgs, toolsForAgent);
@@ -193,6 +199,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
 // --- WEB_SEARCH ---
     if (step.action === 'web_search') {
+      actionIndicator('web_search', step.query);
       webSearchCount++;
       if (webSearchCount > 2) {
         print('info', 'Batas 2x web_search tercapai — memaksa rangkuman dari data yang ada.');
@@ -238,6 +245,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     // menghapus seluruh handler ini — sejak itu ACTION: edit diparse tapi tak pernah
     // dieksekusi dan saveSnapshot tak pernah terpanggil (rollback tanpa data).
     if (step.action === 'edit') {
+      actionIndicator('edit', step.target);
       const target = step.target;
 
       // Guard EKSPLISIT: readFileSafe menolak di jalur BACA, tapi tulis butuh cek
@@ -303,6 +311,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
     // --- BASH ---
     if (step.action === 'bash') {
+      actionIndicator('bash', step.command);
       print('bash', step.command);
 
       const { checkPackageSafety } = await import('./package-safety.js');

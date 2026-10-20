@@ -6,7 +6,7 @@ import { askWithFallback, PROVIDER_NAMES, setModelPrimary, getModelPrimary } fro
 import { runCasual } from './run-casual.js';
 import { runInstruction, getActiveAgent, setActiveAgent, listAgents, plan, executePlan } from './orchestrator.js';
 import { discoverTools } from '../mcp/client.js';
-import { print, printBlock, printUserMessage, printAssistantMessage, printSystemMessage, header, sep, blank, PROMPT, completer } from './ui.js';
+import { print, printBlock, printUserMessage, printAssistantMessage, printSystemMessage, header, sep, blank, PROMPT, completer, banner } from './ui.js';
 import * as tui from './tui.js';
 import { classifyIntent } from './intent.js';
 import { readFileSafe, loadAgentMd } from './utils/fs.js';
@@ -101,7 +101,8 @@ async function startREPL() {
     ? (PROVIDER_NAMES.find(p => p.key === currentModel)?.label || currentModel)
     : 'xKiro / DeepSeek-v4-Pro';
 
-  header(modelLabel, availableTools.map(t => t.name));
+  const agentList = listAgents();
+  banner('0.2.0', modelLabel, agentList.length, availableTools.length);
 
   if (availableTools.length > 0) {
     print('mcp_init', `${availableTools.length} tool: ${availableTools.map(t => t.name).join(', ')}`);
