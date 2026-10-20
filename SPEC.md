@@ -387,6 +387,56 @@ masing-masing file, jadi rawan divergen.
   keputusan, fail-closed, invariant destruktif, dan cek integrasi bahwa REPL +
   Telegram dua-duanya beneran import & panggil `decide`).
 
+### 6. Auto-routing ke squad (`src/routing.js`) — 2026-10-20
+
+Heuristik teks murni, **sengaja gak manggil LLM** — manggil LLM buat nentuin
+"pake LLM lagi apa enggak" itu kontraproduktif: ongkosnya sama kayak langsung
+ngerjain, tapi tanpa kepastian.
+
+**Cara kerja:** kumpulin sinyal teks, terus cocokin ke aturan berurutan.
+
+Sinyal yang dilacak:
+- `sequences` — penanda ada ≥2 tahap ("lalu", "terus", "setelah itu", "then")
+- `cross` — lintas disiplin ("riset ... bikin", "analisis ... implement")
+- `research` — kata riset mendalam ("riset", "benchmark", "bandingkan")
+- `reviews` — minta verifikasi ("review", "cek ulang", "verifikasi")
+- `volumes` — task besar ("project", "fitur baru", "refactor", "migrasi")
+- `simple` — task satu-action ("baca X", "list", "jelaskan", "apa itu")
+
+Aturan keputusan (berurutan, yang pertama cocok menang):
+1. Task simpel + ada kata urutan → **single** (jebakan: "baca X terus ringkas")
+2. `cross` + `sequences` → **squad, high, gak nanya**
+3. `cross` sendirian → **squad, medium, TANYA dulu**
+4. `research` sendirian → **squad, medium, WAJIB tanya** (kata "riset" ambigu)
+5. `sequences` + `volumes` + panjang ≥160 → **squad, high**
+6. `sequences` + `reviews` → **squad, medium, tanya**
+7. ≥2 `sequences` + panjang ≥160 → **squad, medium, tanya**
+8. Sisanya → **single**. Ini mayoritas kasus, dan itu SENGAJA.
+
+**Prinsip: konservatif.** Salah-route ke squad itu mahal (N panggilan LLM);
+salah-route ke single cuma bikin user ketik `/squad` manual. Karena itu
+default-nya single, dan `shouldAsk: true` dipasang di semua kasus ragu.
+
+**Kontrol:** `/route` (status) · `/route on` · `/route off` · `/route test <task>`
+Env: `K_SROUTER_AUTOROUTE=1` buat nyalain dari start. **Default MATI** — opt-in.
+
+**Wiring:** di `src/repl.js`, routing jalan SEBELUM dispatcher `/squad`, dan
+kalau keputusannya squad, dia nyuntik prefix `/squad ` ke instruction — jadi
+cuma ada SATU jalur eksekusi squad, gak ada logika kedobel.
+
+### Test yang nge-drive runtime, bukan cuma baca file (2026-10-20)
+
+`tests/test-autoroute-runtime.mjs` — spawn REPL beneran lewat child_process.
+
+Alasan file ini ada: `test-autoroute-wiring.mjs` (20 pass) cuma regex **baca
+teks** `repl.js`, dan itu LOLOS padahal ada bug runtime beneran —
+`instruction` awalnya `const`, jadi saat auto-routing nyuntik prefix `/squad`
+REPL langsung mati `Assignment to constant variable`. Regex gak bisa nangkep
+itu. Pelajaran: **test yang cuma baca file itu bukan verifikasi.**
+
+Test runtime juga terpaksa kasih jeda antar baris stdin — REPL pakai TUI yang
+nge-overwrite baris, jadi input beruntun cuma baris pertama yang diproses.
+
 ## NEXT SESSION START POINT
 **Baca ini dulu sebelum kerja apapun.**
 

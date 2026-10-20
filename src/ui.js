@@ -175,6 +175,8 @@ export var PROMPT = '  \u2502 > ';
 
 export var SLASH_COMMANDS = [
   { cmd: '/exit',     desc: 'keluar dari K-sRouter' },
+  { cmd: '/mode',     desc: 'mode approval: safe | wellwell | yolo' },
+  { cmd: '/route',    desc: 'auto-routing ke squad: on | off | test <task>' },
   { cmd: '/rollback', desc: 'restore file ke snapshot sebelumnya' },
   { cmd: '/model',    desc: 'switch atau lihat model aktif' },
   { cmd: '/usage',    desc: 'statistik sesi ini' },

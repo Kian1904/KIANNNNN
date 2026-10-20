@@ -16,6 +16,7 @@ import { handleConnect } from './commands/connect.js';
 import { handleAuth } from './commands/auth.js'; // BARU
 import { isDangerous } from './approval.js';
 import { MODES, DESTRUCTIVE_ACTIONS, normalizeMode, decide, MODE_DESCRIPTIONS } from './modes.js';
+import { routeTask, describeRouting } from './routing.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:repl]', ...args); };
@@ -25,6 +26,10 @@ const sessionAllowed = new Set();
 
 // Mode approval aktif buat sesi ini (default SAFE — semua minta approval).
 let approvalMode = normalizeMode(process.env.K_SROUTER_MODE) || MODES.SAFE;
+
+// Auto-routing ke squad: DEFAULT OFF. Aktifin pakai /route on.
+// Sengaja opt-in: squad itu N panggilan LLM, gak boleh jalan diam-diam.
+let autoRoute = process.env.K_SROUTER_AUTOROUTE === '1';
 
 async function startREPL() {
   // Initialize TUI state
@@ -146,7 +151,8 @@ async function startREPL() {
 
   while (true) {
     const input = await ask(PROMPT);
-    const instruction = input.trim();
+    // `let`, bukan `const` — auto-routing nyuntik prefix /squad ke sini.
+    let instruction = input.trim();
     if (!instruction) continue;
 
     // /exit
@@ -253,6 +259,32 @@ async function startREPL() {
       continue;
     }
 
+    // ── AUTO-ROUTING: task kompleks → squad (kalau diaktifin) ─────────────
+    // Ditaruh SEBELUM dispatch /squad manual, jadi task kompleks langsung
+    // masuk jalur squad tanpa user ngetik /squad.
+    if (autoRoute && !instruction.trim().startsWith('/')) {
+      const verdict = routeTask(instruction);
+      if (verdict.route === 'squad') {
+        print('auto', `Auto-route → squad: ${verdict.reason}`);
+        let boleh = true;
+        if (verdict.shouldAsk) {
+          const a = await askApproval(
+            `jalankan SQUAD multi-agent buat task ini`,
+            { forceAsk: true }
+          );
+          boleh = a.approved;
+          if (!boleh) print('info', 'Oke, gue kerjain single-agent aja.');
+        }
+        if (boleh) {
+          // Tipu jalur /squad dengan nyuntik prefix — satu jalur eksekusi,
+          // gak ada logika squad yang kedobel.
+          instruction = '/squad ' + instruction;
+        }
+      } else {
+        print('auto', `Single-agent: ${verdict.reason}`);
+      }
+    }
+
     // /agent - pilih/list agent ber-role (PoC multi-agent)
     if (instruction.toLowerCase().startsWith('/agent')) {
       const arg = instruction.split(' ').slice(1).join(' ').trim();
@@ -311,6 +343,51 @@ async function startREPL() {
       continue;
     }
 
+    if (instruction.toLowerCase().startsWith('/route')) {
+      const arg = (instruction.trim().split(/\s+/)[1] || '').toLowerCase();
+      if (!arg) {
+        print('info', `Auto-routing ke squad: ${autoRoute ? 'AKTIF' : 'MATI'}`);
+        printBlock('', 2);
+        printBlock('Kalau aktif, task kompleks otomatis dikerjakan multi-agent', 2);
+        printBlock('tanpa perlu ketik /squad. Task simpel tetap single-agent.', 2);
+        printBlock('', 2);
+        printBlock('Kontrol: /route on | /route off | /route test <task>', 2);
+        continue;
+      }
+      if (arg === 'on') {
+        autoRoute = true;
+        print('session_ok', 'Auto-routing AKTIF — task kompleks bakal otomatis ke squad.');
+        print('warn', 'Squad = beberapa panggilan LLM. Matiin pakai /route off.');
+        continue;
+      }
+      if (arg === 'off') {
+        autoRoute = false;
+        print('info', 'Auto-routing MATI — semua task single-agent (kecuali /squad manual).');
+        continue;
+      }
+      if (arg === 'test') {
+        // Pakai regex + semua sisa baris, BUKAN split(' ') — biar spasi
+        // berlebih dan teks multi-kata gak kepotong salah.
+        const sample = instruction.replace(/^\s*\/route\s+test\s+/i, '').trim();
+        if (!sample) {
+          print('warn', 'Pakai: /route test <contoh task>');
+          continue;
+        }
+        const v = routeTask(sample);
+        print('info', `Hasil routing: ${describeRouting(v)}`);
+        printBlock(`  confidence : ${v.confidence}`, 2);
+        printBlock(`  tanya dulu : ${v.shouldAsk ? 'ya' : 'tidak'}`, 2);
+        printBlock(`  sinyal urutan    : ${v.signals.sequences.length}`, 2);
+        printBlock(`  sinyal lintas    : ${v.signals.cross.length}`, 2);
+        printBlock(`  sinyal riset     : ${v.signals.research.length}`, 2);
+        printBlock(`  sinyal review    : ${v.signals.reviews.length}`, 2);
+        printBlock(`  task simpel      : ${v.signals.simple ? 'ya' : 'tidak'}`, 2);
+        continue;
+      }
+      print('warn', `Argumen "${arg}" gak dikenal. Pakai: /route on | off | test <task>`);
+      continue;
+    }
+
     if (instruction.toLowerCase() === '/help') {
       print('info', 'Daftar perintah yang tersedia:');
       const commands = [
@@ -322,6 +399,7 @@ async function startREPL() {
         { cmd: '/auth', desc: 'Kelola autentikasi & registrasi provider AI (BARU)' },
         { cmd: '/agent', desc: 'Pilih agent ber-role (researcher/coder/reviewer)' },
         { cmd: '/mode', desc: 'Mode approval: safe | wellwell | yolo' },
+        { cmd: '/route', desc: 'Auto-routing ke squad: on | off | test <task>' },
         { cmd: '/plan <task>', desc: 'Lihat rencana dekomposisi task (dry-run, tanpa eksekusi)' },
         { cmd: '/squad <task>', desc: 'Jalankan task pakai multi-agent (plan + eksekusi)' },
         { cmd: '/clear', desc: 'Bersihkan percakapan saat ini (buat thread baru)' },
