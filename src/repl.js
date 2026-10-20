@@ -15,12 +15,16 @@ import { handleUsage } from './commands/usage.js';
 import { handleConnect } from './commands/connect.js';
 import { handleAuth } from './commands/auth.js'; // BARU
 import { isDangerous } from './approval.js';
+import { MODES, DESTRUCTIVE_ACTIONS, normalizeMode, decide, MODE_DESCRIPTIONS } from './modes.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:repl]', ...args); };
 
 // Session allowed (stateful authorization per session)
 const sessionAllowed = new Set();
+
+// Mode approval aktif buat sesi ini (default SAFE — semua minta approval).
+let approvalMode = normalizeMode(process.env.K_SROUTER_MODE) || MODES.SAFE;
 
 async function startREPL() {
   // Initialize TUI state
@@ -38,12 +42,27 @@ async function startREPL() {
   };
 
   const askApproval = async (label, { forceAsk = false } = {}) => {
+    // ── MODE GATE ────────────────────────────────────────────────────────
+    // Destruktif = forceAsk dari command shell (rm/sudo/dd/...), ATAU label-nya
+    // sendiri aksi destruktif (delete/rename/move/remove).
+    const destructive = forceAsk || DESTRUCTIVE_ACTIONS.has(String(label).toLowerCase());
+    const verdict = decide(approvalMode, { action: label, isDestructive: destructive });
+
+    if (verdict.auto) {
+      print('auto', `${label} auto-approved (mode: ${approvalMode.toUpperCase()}).`);
+      return { approved: true, condition: null };
+    }
+
+    // ── Mode SAFE / WELL-WELL + destruktif: tanya manual ────────────────
     if (!forceAsk && sessionAllowed.has(label)) {
       print('auto', `${label} diizinkan untuk sesi ini.`);
       return { approved: true, condition: null };
     }
 
     if (forceAsk) print('warn', 'Command destruktif — "allow for session" tidak tersedia.');
+    if (approvalMode === MODES.WELLWELL) {
+      print('warn', 'Aksi destruktif — mode WELL-WELL tetap minta approval.');
+    }
 
     console.log('  1) Allow once');
     if (!forceAsk) console.log('  2) Allow for this session');
@@ -262,6 +281,36 @@ async function startREPL() {
     }
 
     // /help - show available commands
+    if (instruction.toLowerCase().startsWith('/mode')) {
+      const arg = instruction.trim().split(/\s+/)[1];
+      if (!arg) {
+        print('info', `Mode approval aktif: ${approvalMode.toUpperCase()}`);
+        Object.entries(MODE_DESCRIPTIONS).forEach(([m, d]) => {
+          const mark = m === approvalMode ? ' ← aktif' : '';
+          printBlock(`${m.toUpperCase().padEnd(10)} ${d}${mark}`);
+        });
+        print('info', 'ganti: /mode safe | /mode wellwell | /mode yolo');
+        continue;
+      }
+      const next = normalizeMode(arg);
+      if (!next) {
+        print('warn', `Mode "${arg}" gak dikenal. pilihan: safe, wellwell, yolo.`);
+        continue;
+      }
+      approvalMode = next;
+      sessionAllowed.clear(); // mode ganti → izin sesi lama jangan kebawa
+      if (next === MODES.YOLO) {
+        print('warn', '⚠️  YOLO AKTIF — semua aksi auto-approve, TERMASUK delete/rm/sudo.');
+        print('warn', 'Rollback tetap ada buat edit, tapi command shell gak ada jaring pengaman.');
+      } else if (next === MODES.WELLWELL) {
+        print('session_ok', 'Mode WELL-WELL aktif — edit & bash auto, destruktif tetap ditanya.');
+      } else {
+        print('info', 'Mode SAFE aktif — semua aksi minta approval.');
+      }
+      blank();
+      continue;
+    }
+
     if (instruction.toLowerCase() === '/help') {
       print('info', 'Daftar perintah yang tersedia:');
       const commands = [
@@ -272,6 +321,7 @@ async function startREPL() {
         { cmd: '/connect', desc: 'Kelola koneksi MCP (plugin)' },
         { cmd: '/auth', desc: 'Kelola autentikasi & registrasi provider AI (BARU)' },
         { cmd: '/agent', desc: 'Pilih agent ber-role (researcher/coder/reviewer)' },
+        { cmd: '/mode', desc: 'Mode approval: safe | wellwell | yolo' },
         { cmd: '/plan <task>', desc: 'Lihat rencana dekomposisi task (dry-run, tanpa eksekusi)' },
         { cmd: '/squad <task>', desc: 'Jalankan task pakai multi-agent (plan + eksekusi)' },
         { cmd: '/clear', desc: 'Bersihkan percakapan saat ini (buat thread baru)' },

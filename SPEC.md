@@ -355,6 +355,38 @@ Empat kerjaan, semuanya udah terverifikasi (test), bukan klaim kosong.
 **Catatan verifikasi:** blok "12 pass / 16 pass" ini udah dijalanin beneran
 dan itu output asli, bukan estimasi.
 
+### 5. Mode approval (`src/modes.js`) — SAFE / WELL-WELL / YOLO (2026-10-20)
+
+Satu modul aturan, dipakai BERSAMA oleh REPL dan bot Telegram — biar perilaku
+dua surface gak bisa beda. Dulu aturan approval cuma ada di `askApproval`
+masing-masing file, jadi rawan divergen.
+
+| Mode | edit | bash biasa | delete/rename/move | rm/sudo/dd/kill |
+|---|---|---|---|---|
+| `safe` (default) | tanya | tanya | tanya | tanya |
+| `wellwell` | auto | auto | **tanya** | **tanya** |
+| `yolo` | auto | auto | auto | auto |
+
+- `decide(mode, { action, isDestructive })` balikin `{ auto, approved, reason }`.
+  `auto:false` = caller WAJIB nanya manual kayak biasa.
+- **Fail-closed:** mode gak dikenal / `undefined` → jatuh ke `safe`. Gak ada
+  jalur di mana typo mode bikin aksi destruktif lolos.
+- **Invariant yang dikunci test:** SAFE dan WELL-WELL **tidak pernah**
+  auto-approve aksi destruktif. Diuji eksplisit lewat matriks 2 mode × 4 aksi
+  destruktif + forceAsk dari `isDangerous()`.
+- Command: `/mode` (lihat), `/mode safe|wellwell|yolo` (ganti). Alias:
+  `ww`, `well-well`, `terabas`, `normal`, `default`.
+- Ganti mode → `sessionAllowed` di-`clear()`, biar izin "allow for session"
+  dari mode sebelumnya gak kebawa.
+- Env override saat start: `K_SROUTER_MODE=wellwell`. Default tetap SAFE.
+- YOLO kasih banner peringatan eksplisit di REPL + Telegram.
+- Aksi destruktif dideteksi dari dua sumber: label aksi (`DESTRUCTIVE_ACTIONS`:
+  delete/rename/move/remove) **dan** `forceAsk` yang dikirim `run-task.js`
+  hasil `isDangerous(command)` (regex `rm`/`sudo`/`dd`/`chmod`/`kill`/uninstall).
+- Test: `tests/test-modes.mjs` — **50 pass** (normalisasi alias, matriks
+  keputusan, fail-closed, invariant destruktif, dan cek integrasi bahwa REPL +
+  Telegram dua-duanya beneran import & panggil `decide`).
+
 ## NEXT SESSION START POINT
 **Baca ini dulu sebelum kerja apapun.**
 

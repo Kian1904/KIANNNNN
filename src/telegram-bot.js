@@ -28,6 +28,7 @@ import { classifyIntent } from './intent.js';
 import { discoverTools } from '../mcp/client.js';
 import { loadAgentMd } from './utils/fs.js';
 import { isDangerous } from './approval.js';
+import { MODES, DESTRUCTIVE_ACTIONS, normalizeMode, decide, MODE_DESCRIPTIONS } from './modes.js';
 
 /** Waktu tunggu jawaban approval sebelum otomatis ditolak (ms). */
 export const APPROVAL_TIMEOUT_MS = 120_000;
@@ -112,6 +113,9 @@ export function createTelegramBot({
   const trackAction = (action) => { stats.byAction[action] = (stats.byAction[action] || 0) + 1; };
   const sessionAllowed = new Set();
 
+  // Mode approval buat sesi bot ini (default SAFE, bisa dari env).
+  let approvalMode = normalizeMode(process.env.K_SROUTER_MODE) || MODES.SAFE;
+
   /** @param {number} chatId @param {string} text */
   async function sendMessage(chatId, text) {
     const chunks = (text || '').match(/[\s\S]{1,4000}/g) || [''];
@@ -127,6 +131,15 @@ export function createTelegramBot({
   /** Approval ala REPL, tapi nunggu balasan chat (y/s/n/c). */
   function makeAskApproval(chatId) {
     return async (label, { forceAsk = false } = {}) => {
+      // MODE GATE — sama persis dengan aturan di REPL (src/modes.js).
+      const destructive = forceAsk || DESTRUCTIVE_ACTIONS.has(String(label).toLowerCase());
+      const verdict = decide(approvalMode, { action: label, isDestructive: destructive });
+
+      if (verdict.auto) {
+        await sendMessage(chatId, `[auto] ${label} auto-approved (mode: ${approvalMode.toUpperCase()})`);
+        return { approved: true, condition: null };
+      }
+
       if (!forceAsk && sessionAllowed.has(label)) {
         return { approved: true, condition: null };
       }
@@ -234,6 +247,25 @@ export function createTelegramBot({
       });
       log({ threadId: getThreadId(), role: 'assistant', content: exec.finalSummary, actionType: 'done', approved: true });
       return sendMessage(chatId, `✅ Ringkasan squad:\n\n${exec.finalSummary}`);
+    }
+
+    if (cmd === 'mode') {
+      if (!arg) {
+        const lines = Object.entries(MODE_DESCRIPTIONS)
+          .map(([m, d]) => `${m === approvalMode ? '[x]' : '[ ]'} ${m.toUpperCase()} - ${d}`);
+        return sendMessage(chatId, `Mode approval aktif: ${approvalMode.toUpperCase()}\n\n${lines.join('\n')}\n\nGanti: /mode safe | /mode wellwell | /mode yolo`);
+      }
+      const next = normalizeMode(arg);
+      if (!next) return sendMessage(chatId, `Mode "${arg}" gak dikenal. Pilihan: safe, wellwell, yolo.`);
+      approvalMode = next;
+      sessionAllowed.clear();
+      if (next === MODES.YOLO) {
+        return sendMessage(chatId, 'YOLO AKTIF - semua aksi auto-approve, TERMASUK delete/rm/sudo.\nRollback tetap ada buat edit; command shell gak ada jaring pengaman.');
+      }
+      if (next === MODES.WELLWELL) {
+        return sendMessage(chatId, 'Mode WELL-WELL aktif - edit & bash auto-approve, destruktif (delete/rename/remove, rm/sudo/dd/kill) TETAP ditanya.');
+      }
+      return sendMessage(chatId, 'Mode SAFE aktif - semua aksi minta approval satu-satu.');
     }
 
     if (cmd === 'stats') {
