@@ -19,7 +19,7 @@ const fetchFn = async (url, opts) => {
 let planCalled = null, execCalled = null, instrArgs = null, activeSet = undefined, approvalTrigger = false;
 const fakePlan = async (task) => {
   planCalled = task;
-  return { ok: true, tasks: [{ id: 1, role: 'coder', brief: 'bikin fitur', dependsOn: null }],
+  return { ok: true, tasks: [{ id: 1, role: 'coder', brief: 'Implementasikan fitur login di src/login.js', dependsOn: null }],
            problems: [], attempts: 1, raw: '' };
 };
 const fakeExec = async (p, ctx) => {
@@ -85,10 +85,24 @@ check('/plan balas ringkasan rencana', lastSent().includes('Rencana'));
 
 sent.length = 0;
 execCalled = null;
+// Sejak M22: /squad TIDAK langsung jalan. Dia tampilkan rencana lalu nunggu
+// /approve. Ini gerbang review — user harus liat rencananya dulu.
 await bot.handleMessage(msg('/squad riset X lalu bikin kodenya'));
-check('/squad rencana valid → executePlan kepanggil', execCalled !== null && planCalled === 'riset X lalu bikin kodenya');
-check('/squad balas ringkasan squad', lastSent().includes('SQUAD SELESAI'));
-check('/squad kirim pesan peluncuran dulu', sent.some(s => s.includes('Squad:')));
+check('/squad menampilkan rencana, BELUM eksekusi', execCalled === null);
+check('/squad balas preview rencana', lastSent().includes('Rencana squad') && lastSent().includes('BELUM dieksekusi'));
+check('/squad nyuruh /approve atau /cancel', lastSent().includes('/approve'));
+
+// Baru setelah /approve, eksekusi jalan.
+sent.length = 0;
+await bot.handleMessage(msg('/approve'));
+check('/approve → executePlan kepanggil', execCalled !== null);
+check('/approve balas ringkasan squad', sent.some(s => s.includes('SQUAD SELESAI')));
+
+// /approve dua kali harus DITOLAK (rencana sekali pakai).
+sent.length = 0;
+execCalled = null;
+await bot.handleMessage(msg('/approve'));
+check('/approve dua kali tidak mengeksekusi ulang', execCalled === null);
 
 sent.length = 0;
 await bot.handleMessage(msg('/stats'));

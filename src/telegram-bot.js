@@ -23,6 +23,7 @@ import 'dotenv/config';
 import { pathToFileURL } from 'url';
 import { createThread, logStep, getConversation } from './db.js';
 import { runInstruction, getActiveAgent, setActiveAgent, listAgents, plan, executePlan } from './orchestrator.js';
+import { formatPlanForTelegram, MAX_REPLANS } from './plan-review.js';
 import { runCasual } from './run-casual.js';
 import { classifyIntent } from './intent.js';
 import { discoverTools } from '../mcp/client.js';
@@ -50,8 +51,11 @@ export function isApprovalAnswer(text) {
 const HELP_TEXT = `🤖 K-sRouter Bot — perintah:
 /agent — lihat agent aktif
 /agent <nama> — pilih agent: ${Object.keys({}).join('')}
-/plan <task> — lihat rencana squad TANPA eksekusi
-/squad <task> — eksekusi multi-agent (plan → wave → ringkasan)
+/plan <task> — lihat rencana squad (BELUM eksekusi)
+/squad <task> — susun rencana squad → tampil → nunggu /approve
+/approve — jalankan rencana yang nunggu (kedaluwarsa 30 menit)
+/cancel — batalkan rencana yang nunggu
+/replan — minta LLM susun ulang rencananya (maks 3x)
 /mode — lihat mode approval aktif
 /mode <safe|wellwell|yolo> — ganti mode approval
 /route — lihat status auto-routing ke squad
@@ -79,6 +83,12 @@ Izin aksi file/shell: balas y (sekali), s (sesi), n (tolak), atau c <kondisi>.`;
  * @returns {{handleMessage:Function, startPolling:Function, stop:Function,
  *            askApproval:Function, _state:Object}}
  */
+// Rencana yang nunggu di-approve, per chat. Rencana TIDAK dieksekusi sampai
+// user bener-bener ngetik /approve — ini gerbang paling penting.
+const pendingPlans = new Map();
+// Jangan biarin rencana ngendon selamanya; 30 menit cukup buat user mikir.
+const PENDING_PLAN_TTL_MS = 30 * 60 * 1000;
+
 export function createTelegramBot({
   botToken,
   allowedUserIds = [],
@@ -235,8 +245,11 @@ export function createTelegramBot({
       const p = await planFn(arg);
       if (!p.ok) return sendMessage(chatId, `❌ Rencana tidak valid:\n${p.problems.map(x => `- ${x}`).join('\n')}`);
       if (p.tasks.length === 0) return sendMessage(chatId, 'Task obrolan — tidak perlu squad. Langsung chat saja.');
-      const lines = p.tasks.map(t => `${t.id}. [${t.role}] ${t.brief}${t.dependsOn != null ? ` (butuh #${t.dependsOn})` : ''}`);
-      return sendMessage(chatId, `📋 Rencana (${p.tasks.length} task):\n\n${lines.join('\n')}\n\nUntuk eksekusi: /squad ${arg}`);
+      pendingPlans.set(chatId, { tasks: p.tasks, attempt: p.attempts, instruction: arg, createdAt: Date.now() });
+      return sendMessage(chatId,
+        `📋 Rencana (${p.tasks.length} task) — BELUM dieksekusi:\n\n${formatPlanForTelegram(p.tasks)}\n\n` +
+        `Balas:\n• /approve — jalankan\n• /cancel — batal\n• /replan — susun ulang\n\n` +
+        `(atau /squad ${arg} untuk menyusun + jalan sekaligus)`);
     }
 
     if (cmd === 'squad') {
@@ -248,9 +261,23 @@ export function createTelegramBot({
         const result = await runSingle(arg, chatId);
         return sendMessage(chatId, result);
       }
-      await sendMessage(chatId, `🚀 Squad: ${p.tasks.length} task → ${p.tasks.map(t => `${t.role}(#${t.id})`).join(' → ')}`);
-      const exec = await execFn(p, {
-        originalInstruction: arg,
+      // Gerbang review: tampilkan rencana utuh, eksekusi HANYA setelah /approve.
+      pendingPlans.set(chatId, { tasks: p.tasks, attempt: p.attempts, instruction: arg, createdAt: Date.now() });
+      return sendMessage(chatId,
+        `📋 Rencana squad (${p.tasks.length} task) — BELUM dieksekusi:\n\n${formatPlanForTelegram(p.tasks)}\n\n` +
+        `Balas /approve untuk menjalankan, /cancel untuk batal, atau /replan untuk susun ulang.`);
+    }
+
+    if (cmd === 'appv' || cmd === 'approve') {
+      const pending = pendingPlans.get(chatId);
+      if (!pending) return sendMessage(chatId, 'Gak ada rencana yang nunggu. Pakai /squad <task> atau /plan <task> dulu.');
+      pendingPlans.delete(chatId);
+      if (Date.now() - pending.createdAt > PENDING_PLAN_TTL_MS) {
+        return sendMessage(chatId, '⏰ Rencana itu sudah kedaluwarsa (lebih dari 30 menit). Bikin ulang pakai /squad <task>.');
+      }
+      await sendMessage(chatId, `🚀 Disetujui — menjalankan ${pending.tasks.length} task...`);
+      const exec = await execFn({ ok: true, tasks: pending.tasks, attempts: pending.attempt }, {
+        originalInstruction: pending.instruction,
         agentMd: agentMdFn(), availableTools: await toolsFn().catch(() => []),
         threadId: getThreadId(),
         stats, trackProvider, trackAction, isDangerous: dangerFn,
@@ -258,6 +285,34 @@ export function createTelegramBot({
       });
       log({ threadId: getThreadId(), role: 'assistant', content: exec.finalSummary, actionType: 'done', approved: true });
       return sendMessage(chatId, `✅ Ringkasan squad:\n\n${exec.finalSummary}`);
+    }
+
+    if (cmd === 'cancel') {
+      const had = pendingPlans.delete(chatId);
+      return sendMessage(chatId, had ? '🛑 Rencana dibatalkan — tidak ada yang dieksekusi.' : 'Gak ada rencana yang nunggu.');
+    }
+
+    if (cmd === 'replan') {
+      const pending = pendingPlans.get(chatId);
+      if (!pending) return sendMessage(chatId, 'Gak ada rencana yang nunggu. Pakai /squad <task> dulu.');
+      if (pending.replans >= MAX_REPLANS) {
+        pendingPlans.delete(chatId);
+        return sendMessage(chatId, `Sudah ${MAX_REPLANS}x susun ulang — berhenti biar gak muter. Bikin task baru aja.`);
+      }
+      pending.replans = (pending.replans || 0) + 1;
+      await sendMessage(chatId, `🔁 Menyusun ulang rencana (${pending.replans}/${MAX_REPLANS})...`);
+      const p2 = await planFn(pending.instruction);
+      if (!p2.ok || p2.tasks.length === 0) {
+        pendingPlans.delete(chatId);
+        return sendMessage(chatId, `❌ Susun ulang gagal: ${p2.problems?.[0] || 'rencana kosong'}. Coba /squad lagi dengan kalimat lebih spesifik.`);
+      }
+      pendingPlans.set(chatId, {
+        tasks: p2.tasks, attempt: p2.attempts, instruction: pending.instruction,
+        replans: pending.replans, createdAt: Date.now(),
+      });
+      return sendMessage(chatId,
+        `📋 Rencana BARU (${p2.tasks.length} task) — BELUM dieksekusi:\n\n${formatPlanForTelegram(p2.tasks)}\n\n` +
+        `Balas /approve, /cancel, atau /replan.`);
     }
 
     if (cmd === 'mode') {
@@ -385,16 +440,12 @@ export function createTelegramBot({
           await sendMessage(chatId, `🔀 Auto-route → squad (${verdict.confidence})\n• ${verdict.reason}`);
           const p = await planFn(text);
           if (p.ok && p.tasks.length > 0) {
-            await sendMessage(chatId, `🚀 Squad: ${p.tasks.length} task → ${p.tasks.map(t => `${t.role}(#${t.id})`).join(' → ')}`);
-            const exec = await execFn(p, {
-              originalInstruction: text,
-              agentMd: agentMdFn(), availableTools,
-              threadId: getThreadId(),
-              stats, trackProvider, trackAction, isDangerous: dangerFn,
-              askApproval: makeAskApproval(chatId),
-            });
-            log({ threadId: getThreadId(), role: 'assistant', content: exec.finalSummary, actionType: 'done', approved: true });
-            return sendMessage(chatId, `✅ Ringkasan squad:\n\n${exec.finalSummary}`);
+            // Auto-route tetap WAJIB lewat gerbang review. Auto-route itu
+            // cuma keputusan soal "siapa yang ngerjain", bukan izin eksekusi.
+            pendingPlans.set(chatId, { tasks: p.tasks, attempt: p.attempts, instruction: text, createdAt: Date.now() });
+            return sendMessage(chatId,
+              `📋 Rencana squad (${p.tasks.length} task) — BELUM dieksekusi:\n\n${formatPlanForTelegram(p.tasks)}\n\n` +
+              `Balas /approve untuk menjalankan, /cancel untuk batal, atau /replan untuk susun ulang.`);
           }
         } else if (verdict.route === 'squad' && verdict.shouldAsk) {
           await sendMessage(chatId, `🔀 Kelihatannya butuh squad (${verdict.confidence}), tapi gue gak yakin:\n• ${verdict.reason}\n\nKalau memang mau multi-agent: /squad ${text}`);

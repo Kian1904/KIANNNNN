@@ -18,6 +18,7 @@ import { handleAuth } from './commands/auth.js'; // BARU
 import { isDangerous } from './approval.js';
 import { MODES, DESTRUCTIVE_ACTIONS, normalizeMode, decide, MODE_DESCRIPTIONS } from './modes.js';
 import { routeTask, describeRouting } from './routing.js';
+import { reviewPlan, MAX_REPLANS } from './plan-review.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:repl]', ...args); };
@@ -481,19 +482,54 @@ async function startREPL() {
 
       logStep({ threadId, role: 'user', content: `[SQUAD] ${taskText}` });
       print('info', 'Menganalisis task & menyusun rencana squad...');
-      const p = await plan(taskText, askWithFallback);
 
-      if (!p.ok || p.tasks.length === 0) {
-        // Fallback: jalankan task generic langsung (perilaku lama), jangan crash
-        print('warn', p.ok
-          ? 'Task obrolan — jalankan sebagai task biasa.'
-          : `Rencana tidak valid (${p.problems[0] || 'unknown'}) — fallback ke single agent.`);
+      // Gerbang review: susun rencana -> tampilkan -> minta izin -> baru eksekusi.
+      // User bisa minta susun ulang sampai MAX_REPLANS kali.
+      let p = null;
+      let decision = 'cancel';
+      let replans = 0;
+      for (;;) {
+        p = await plan(taskText, askWithFallback);
+
+        if (!p.ok || p.tasks.length === 0) {
+          // Fallback: jalankan task generic langsung (perilaku lama), jangan crash
+          print('warn', p.ok
+            ? 'Task obrolan — jalankan sebagai task biasa.'
+            : `Rencana tidak valid (${p.problems[0] || 'unknown'}) — fallback ke single agent.`);
+          decision = 'fallback';
+          break;
+        }
+
+        decision = await reviewPlan(p.tasks, {
+          // Sengaja SATU printBlock per baris: formatPlan ngalahin struktur
+          // indentasi, dan wrap() di printBlock ngeratain semua indent. Kalau
+          // digabung, "boleh: read, list_dir..." nempel ke brief.
+          print: (s) => (s === '' ? blank() : printBlock(s, 2)),
+          ask,
+          planAttempts: p.attempts,
+        });
+
+        if (decision !== 'replan') break;
+        replans++;
+        if (replans >= MAX_REPLANS) {
+          print('warn', `Sudah ${replans}x minta susun ulang — berhenti biar gak muter.`);
+          decision = 'cancel';
+          break;
+        }
+        print('info', `Menyusun ulang rencana (${replans}/${MAX_REPLANS})...`);
+      }
+
+      if (decision === 'cancel') {
+        print('info', 'Rencana dibatalkan — tidak ada yang dieksekusi.');
+        continue;
+      }
+      if (decision === 'fallback') {
         await runInstruction(taskText, agentMd, availableTools, threadId, stats, trackProvider, trackAction, isDangerous, askApproval);
         continue;
       }
 
-      print('info', `Rencana: ${p.tasks.length} task → ${p.tasks.map(t => `${t.role}(#${t.id})`).join(' → ')}`);
       sep();
+      print('info', 'Rencana disetujui — mulai eksekusi.');
 
       const exec = await executePlan(p, {
         originalInstruction: taskText,

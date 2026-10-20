@@ -113,12 +113,31 @@ const last = (sent) => String(sent[sent.length - 1] || '');
     await bot.handleMessage(msg('/route on'));
     sent.length = 0;
     await bot.handleMessage(msg('riset cara kerja debounce lalu bikin implementasinya'));
-    check('jalur squad kepanggil', counts.squad === 1, `squad=${counts.squad}`);
+    // Sejak M22 auto-route TIDAK langsung mengeksekusi: dia menyusun rencana
+    // dulu lalu menunggu /approve. Menembak squad otonom tanpa review itu
+    // persis yang bikin satu typo berujung eksekusi yang gak dimau.
+    // counts.squad = executePlan (eksekusi). Saat preview dia memang 0 —
+    // yang jalan baru penyusunan rencana (counts.plan).
+    check('jalur squad menyusun rencana', counts.plan === 1, `plan=${counts.plan}`);
+    check('eksekusi BELUM jalan sebelum /approve', counts.squad === 0, `squad=${counts.squad}`);
     check('jalur single TIDAK kepanggil', counts.single === 0, `single=${counts.single}`);
     check('ada pemberitahuan auto-route', sent.some(s => String(s).includes('Auto-route')), sent.join(' | ').slice(0, 100));
-    check('ada daftar task squad', sent.some(s => String(s).includes('Squad:')), '');
-    check('ada ringkasan akhir', sent.some(s => String(s).includes('SQUAD SELESAI')), '');
+    check('auto-route menampilkan preview rencana', sent.some(s => String(s).includes('BELUM dieksekusi')), sent.join(' | ').slice(0, 140));
+    check('auto-route BELUM eksekusi sebelum /approve', !sent.some(s => String(s).includes('SQUAD SELESAI')), '');
     check('tidak ada pesan error', !sent.some(s => String(s).includes('Terjadi error')), sent.join(' | ').slice(0, 120));
+  }
+
+  // ── [5b] auto-route → preview → /approve → eksekusi ──
+  console.log('\n[5b] auto-route + /approve baru eksekusi');
+  {
+    const { bot, counts, sent } = mkBot();
+    await bot.handleMessage(msg('/route on'));
+    await bot.handleMessage(msg('riset cara kerja debounce lalu bikin implementasinya'));
+    sent.length = 0;
+    counts.squad = 0;
+    await bot.handleMessage(msg('/approve'));
+    check('/approve setelah auto-route → squad jalan', counts.squad === 1, `squad=${counts.squad}`);
+    check('/approve mengirim ringkasan akhir', sent.some(s => String(s).includes('SQUAD SELESAI')), '');
   }
 
   // ── [6] auto-routing ON: task simpel tetap single ──

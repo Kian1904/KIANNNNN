@@ -452,20 +452,20 @@ worker yang crash gak matiin squad (error isolation M17).
 Input biasa masih single-agent (default lama).
 
 Cara test manual di REPL:
-- `/plan riset cara kerja offline search lalu bikin kodenya` (lihat rencana)
-- `/squad riset cara kerja offline search lalu bikin kodenya` (eksekusi penuh)
+- `/plan riset cara kerja offline search lalu bikin kodenya` (preview saja)
+- `/squad riset cara kerja offline search lalu bikin kodenya` (preview → `y` eksekusi, `r` replan, `n` batal)
 - `/agent` (lihat role), `/help` (daftar command)
 
 Cara test manual di Telegram (butuh `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USER_IDS` di .env):
 - `node src/telegram-bot.js` → chat bot: `/help`, `/plan ...`, `/squad ...`
-- Approval: balas `y` / `s` / `n` / `c <kondisi>` (timeout 120s otomatis tolak)
+- Setelah `/squad` atau auto-route: `/approve`, `/cancel`, atau `/replan` (pending plan kedaluwarsa 30 menit)
+- Approval aksi individual di dalam task: balas `y` / `s` / `n` / `c <kondisi>` (timeout 120s otomatis tolak)
 
 Yang bisa dikerjakan berikutnya:
 
-1. ~~**Auto-routing:**~~ ✅ SELESAI dua tahap — `src/routing.js` (heuristik,
-   nol LLM) + `/route` di REPL (`6de3b0f`), lalu parity Telegram + auto-route
-   di jalur pesan biasa (`M20`). Baca seksi M19 + M20 di bawah.
-   Sisa yang belum: preview rencana squad yang dedicated sebelum eksekusi.
+1. ~~**Auto-routing + review rencana:**~~ ✅ SELESAI — `src/routing.js` (heuristik,
+   nol LLM), parity Telegram + auto-route (`M20`), lalu gerbang preview/
+approve/replan/cancel (`M22`). Baca seksi M19, M20, dan M22 di bawah.
 
 2. ~~**Aksi destruktif lain:**~~ ✅ SELESAI (`M21`) — `delete`, `rename`, `move`
    ada di `src/file-ops.js`. Termasuk fix `/rollback` yang dulu gak bisa
@@ -680,7 +680,71 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
 
-## M21 — Aksi Destruktif: delete / rename / move (2026-10-20)
+## M22 — Review Rencana + Self-Correcting Execution (2026-10-20)
+
+M22 menutup dua lubang besar setelah auto-routing dan aksi destruktif:
+
+1. Rencana squad dulu langsung dieksekusi tanpa kesempatan user memeriksa
+   pembagian role, brief, dependency, dan whitelist action.
+2. Satu balasan model yang tidak punya format `ACTION:` membuat `planStep`
+   throw sampai ke `runTask`; task mati walau langkah-langkah sebelumnya sudah
+   selesai.
+
+### Self-correcting `planStep`
+
+`src/plan.js` sekarang punya `planStepWithRetry` (default maksimal 3 percobaan):
+
+- `planStep` tetap mempertahankan kontrak lama; hanya error parsing yang diberi
+  metadata `raw`.
+- Balasan invalid dikirim kembali ke model bersama alasan kegagalan dan potongan
+  balasan sebelumnya. Model diminta langsung memakai format `REASONING:` +
+  `ACTION:` tanpa prose/markdown.
+- Helper selalu resolve `{ ok, step, attempts }`; tiga kegagalan tidak melempar
+  keluar loop. `run-task.js` mencatat kegagalan sebagai ringkasan terkontrol,
+  mempertahankan history/progress sebelumnya.
+- Jalur forced `done` setelah batas web search juga memakai retry; jika tetap
+  gagal, task berhenti secara fail-closed sebagai `done`, bukan crash.
+
+### Validasi makna rencana
+
+`validatePlan()` sekarang memeriksa hal yang sintaks JSON tidak bisa tangkap:
+
+- brief kosong/terlalu pendek;
+- researcher/reviewer yang brief-nya dimulai kata kerja perubahan file;
+- coder yang brief-nya meminta riset web;
+- dependency yang berpotensi membaca hasil setelah perubahan.
+
+Validator sengaja tidak memakai pencarian kata global: kata benda seperti
+`"implementasi"` dalam brief riset yang berbunyi "fakta untuk implementasi"
+tetap valid. Tes regresi untuk false-positive ini wajib ada.
+
+`KNOWN_ACTIONS` diperbarui menjadi 11 aksi, termasuk `delete`, `rename`, dan
+`move`.
+
+### Gerbang review squad
+
+Modul baru `src/plan-review.js` dipakai oleh REPL dan Telegram untuk menampilkan:
+
+- jumlah task dan wave;
+- role + brief lengkap;
+- dependency;
+- whitelist action tiap role.
+
+REPL `/squad` sekarang: susun → preview → `y` eksekusi, `r` susun ulang,
+`n` batal. Maksimal 3 kali replan. Telegram `/squad`, `/plan`, dan auto-route
+menyimpan rencana pending per chat; `/approve` baru mengeksekusi, `/cancel`
+membuang, `/replan` menyusun ulang maksimal 3 kali, dan pending plan kedaluwarsa
+setelah 30 menit. Tidak ada eksekusi otomatis hanya karena route memutuskan
+`squad`.
+
+### Verifikasi M22
+
+- `tests/test-plan-review.mjs`: **57 pass**.
+- Runtime REPL nyata: preview tampil, `r` menghasilkan rencana baru, `y`
+  menjalankan, `n` membatalkan tanpa eksekusi.
+- Suite final: **516 pass, 0 fail, 23 file**.
+
+
 
 Gate-nya udah lama ada di `src/modes.js` (`DESTRUCTIVE_ACTIONS`) tapi action-nya
 belum pernah dibuat — jadi `/mode wellwell` punya aturan buat aksi yang gak bisa

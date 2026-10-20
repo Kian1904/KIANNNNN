@@ -18,7 +18,7 @@ import { ACTION_FORMAT, SYSTEM_PROMPT } from './prompts/system.js';
  */
 
 // Aksi yang dikenal parser di src/plan.js (done selalu boleh, tidak perlu dicatat)
-const KNOWN_ACTIONS = ['edit', 'bash', 'read', 'list_dir', 'remember', 'mcp_call', 'web_search', 'chat'];
+const KNOWN_ACTIONS = ['edit', 'bash', 'read', 'list_dir', 'remember', 'mcp_call', 'web_search', 'chat', 'delete', 'rename', 'move'];
 
 /** @type {Record<string, AgentConfig>} */
 export const AGENTS = {

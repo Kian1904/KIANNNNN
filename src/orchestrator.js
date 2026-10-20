@@ -168,6 +168,66 @@ export function validatePlan(plan) {
     }
   });
 
+  // —— VALIDASI MAKNA (bukan cuma bentuk) ——
+  // Sintaks bener ≠ rencana masuk akal. Tapi hati-hati: validator yang terlalu
+  // galak LEBIH BURUK daripada gak ada validator, karena dia bikin squad gak
+  // pernah kepake. Pelajaran mahal dari tes pertama: brief riset yang bunyinya
+  // "...kumpulkan fakta untuk implementasi" kena tuduh "nyuruh edit" cuma karena
+  // ada kata "implementasi". Itu riset yang SAH. Jadi arah kalimatnya dibaca,
+  // bukan cuma ada-tidaknya kata.
+  tasks.forEach((t, i) => {
+    if (!t || typeof t !== 'object') return;
+    const label = `tasks[${i}]`;
+    const agent = AGENTS[t.role];
+    if (!agent) return; // role gak dikenal udah dilaporkan di atas
+
+    const brief = String(t.brief || '').trim();
+
+    // (a) Brief kelewat pendek = model cuma ngisi formalitas. Worker bakal
+    // nanya-nanya sendiri dan hasilnya ngawur.
+    if (brief.length > 0 && brief.length < 15) {
+      problems.push(`${label} brief terlalu pendek ("${brief}") — jelaskan apa yang harus dikerjakan secara spesifik`);
+    }
+
+    // (b) Brief nyuruh KERJAAN yang DILARANG buat role itu.
+    //
+    // Yang dihitung cuma KATA KERJA IMPERATIF di depan brief. Alasannya: kata
+    // benda seperti "implementasi" sering muncul sebagai OBJEK ("kumpulkan fakta
+    // untuk implementasi") yang artinya justru riset, bukan ngoding.
+    const imperativeWrite = /^\s*(edit|ubah|tulis|tulis ulang|buat|bikin|hapus|rename|pindah|pindahkan|refactor|patch|implementasi(kan)?|implement|perbaiki|fix|tambahkan|tambah|ganti|update|upgrade|hapuskan)\b/i;
+    const readOnlyRoles = ['researcher', 'reviewer'];
+    if (readOnlyRoles.includes(t.role) && imperativeWrite.test(brief)) {
+      problems.push(`${label} role "${t.role}" read-only tapi brief-nya mulai dengan kata kerja MENGUBAH ("${brief.slice(0, 60)}...") — pakai role coder untuk pekerjaan yang mengubah file`);
+    }
+    if (t.role === 'coder' && /^\s*(riset|telusuri|googling|cari di web|web_search)\b/i.test(brief)) {
+      problems.push(`${label} role "coder" tidak boleh web_search tapi brief-nya mulai dengan "riset/telusuri" — pisah jadi task researcher lalu coder dependsOn researcher`);
+    }
+
+    // (c) dependsOn salah arah: task yang cuma "baca/riset" ditaruh SETELAH
+    // task yang mengubah file. Datanya jadi basi. Ini khas model gratisan.
+    const dep = t.dependsOn;
+    if (dep !== null && dep !== undefined) {
+      const parent = tasks.find(x => x && x.id === dep);
+      if (parent) {
+        const parentWrites = imperativeWrite.test(String(parent.brief || ''));
+        const childReadsOnly = /^\s*(baca|baca ulang|read|cek|periksa|verifikasi)\b/i.test(brief);
+        if (parentWrites && childReadsOnly && t.role !== 'reviewer') {
+          problems.push(`${label} membaca file SETELAH task ${dep} mengubahnya — hasilnya bisa basi; pastikan urutannya memang disengaja`);
+        }
+      }
+    }
+  });
+
+  // (d) Rencana yang gak punya ujung: semua task saling bergantung tapi gak ada
+  // yang bisa mulai. topologicalWaves() bakal throw — lebih baik ketangkep di sini.
+  if (!problems.some(p => p.includes('dependsOn'))) {
+    const ids = new Set(tasks.filter(t => t && typeof t === 'object' && t.id !== undefined).map(t => t.id));
+    const hasRoot = tasks.some(t => t && typeof t === 'object' && (t.dependsOn === null || t.dependsOn === undefined) && ids.has(t.id));
+    if (!hasRoot && tasks.length > 0) {
+      problems.push('semua task punya dependsOn — tidak ada task yang bisa mulai (bikin minimal satu task dengan dependsOn: null)');
+    }
+  }
+
   return problems;
 }
 
@@ -207,6 +267,7 @@ export async function plan(instruction, askFn = askWithFallback, { maxAttempts =
   let problems = [];
   let raw = null;
 
+  let lastParsed = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const userPrompt = attempt === 1
       ? `Task user: ${instruction}`
@@ -221,6 +282,7 @@ export async function plan(instruction, askFn = askWithFallback, { maxAttempts =
       problems = [err.message];
       continue;
     }
+    lastParsed = parsed;
 
     const validationProblems = validatePlan(parsed);
     if (validationProblems.length === 0) {
@@ -229,7 +291,11 @@ export async function plan(instruction, askFn = askWithFallback, { maxAttempts =
     problems = validationProblems;
   }
 
-  return { ok: false, tasks: [], problems, attempts: maxAttempts, raw };
+  // Perhatikan: tasks tetap dikembalikan walau ok:false. Tanpa itu, satu-satunya
+  // jejak rencana jelek cuma pesan error yang brief-nya udah dipotong — mustahil
+  // didebug. tasks yang gak lolos validasi TIDAK boleh dieksekusi (executePlan
+  // cek ok), tapi harus bisa DILIHAT.
+  return { ok: false, tasks: (lastParsed && lastParsed.tasks) || [], problems, attempts: maxAttempts, raw, invalid: true };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

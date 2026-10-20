@@ -3,7 +3,70 @@ import { SYSTEM_PROMPT } from './prompts/system.js';
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:plan]', ...args); };
 
-function buildHistoryText(history) {
+/** Bikin Error yang nempel balasan mentah model, biar retry bisa nunjukin ke model. */
+function stepError(msg, raw) {
+  const e = new Error(raw === undefined ? msg : `${msg}\n`, raw);
+  e.raw = raw;
+  return e;
+}
+
+
+/**
+ * Bungkus planStep biar SATU balasan sampah dari model gak matiin seluruh task.
+ *
+ * Kenapa ini penting: provider gratis kadang balas teks biasa ("Oke, aku bantu
+ * kamu...") atau formatnya setengah jadi. planStep() throw di kasus itu — dan
+ * yang lama, throw-nya nyebar keluar runTask sampai gak ada yang nangkap sama
+ * sekali. Hasilnya: task mati di langkah pertama, semua progress hilang, cuma
+ * demi satu balasan jelek.
+ *
+ * Di sini tiap percobaan yang gagal dikirim ulang ke model BESERTA kesalahannya,
+ * jadi model dapat kesempatan kedua (dan ketiga). Ini "self-correcting" yang
+ * beneran: bukan nyembunyiin error, tapi minta model benerin.
+ *
+ * @param {Function} askFn
+ * @param {Object} ctx - argumen buat planStep
+ * @param {{maxAttempts?:number, onRetry?:Function}} [opts]
+ * @returns {Promise<{ok:true, step:Object, attempts:number} | {ok:false, lastError:string, attempts:number, raw:string|null}>}
+ *   Selalu resolve — TIDAK pernah throw. Pemanggil tinggal cek ok.
+ */
+export async function planStepWithRetry(askFn, ctx, { maxAttempts = 3, onRetry } = {}) {
+  let lastError = null;
+  let lastRaw = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const step = await planStep(askFn, ctx);
+      return { ok: true, step, attempts: attempt };
+    } catch (err) {
+      lastError = err.message;
+      lastRaw = err.raw !== undefined ? err.raw : null;
+      dbg(`planStep gagal (percobaan ${attempt}/${maxAttempts}):`, err.message.slice(0, 200));
+
+      if (attempt === maxAttempts) break;
+      if (onRetry) {
+        try { onRetry(attempt, maxAttempts, err.message); } catch { /* onRetry gak boleh matiin retry */ }
+      }
+
+      // Kasih tau model APA yang salah dan gimana yang bener. Tanpa ini,
+      // percobaan kedua cuma ngulang kesalahan yang sama.
+      const prev = lastRaw ? `\n\nBALASAN KAMU TADI:\n${String(lastRaw).slice(0, 400)}` : '';
+      ctx = {
+        ...ctx,
+        systemPromptOverride: [
+          ctx.systemPromptOverride || '',
+          `\n\n[SISTEM: Balasan sebelumnya GAGAL diparse. MASALAHNYA: ${lastError.split('\n')[0]}`,
+          'Kamu WAJIB balas dengan format yang bener, mulai dengan baris REASONING: lalu ACTION: (satu dari: read, list_dir, edit, delete, rename, move, bash, web_search, mcp_call, remember, chat, done).',
+          'JANGAN balas dengan kalimat pembuka, penjelasan, atau markdown. Langsung formatnya.' + prev + ']',
+        ].join(''),
+      };
+    }
+  }
+
+  return { ok: false, lastError, attempts: maxAttempts, raw: lastRaw };
+}
+
+export function buildHistoryText(history) {
   if (history.length === 0) return '(belum ada langkah)';
   return history.map((h, i) => {
     if (h.action === 'read') {
@@ -96,7 +159,7 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
        dbg('raw LLM response:', raw.slice(0, 500) + (raw.length > 500 ? '...[truncated]' : ''));
 
   if (!actionMatch) {
-    throw new Error(`Respons LLM tidak punya ACTION yang valid.\n--- raw ---\n${raw}`);
+    throw stepError(`Respons LLM tidak punya ACTION yang valid.\n`, raw);
   }
   const action = actionMatch[1];
  
@@ -107,13 +170,13 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
 
   if (action === 'bash') {
     const commandMatch = raw.match(/COMMAND:\s*(.*)/);
-    if (!commandMatch) throw new Error(`ACTION bash tapi tidak ada COMMAND.\n--- raw ---\n${raw}`);
+    if (!commandMatch) throw stepError(`ACTION bash tapi tidak ada COMMAND.\n`, raw);
     return { action, reasoning, command: commandMatch[1].trim() };
   }
 
   if (action === 'read') {
     const targetMatch = raw.match(/TARGET:\s*(.*)/);
-    if (!targetMatch) throw new Error(`ACTION read tapi tidak ada TARGET.\n--- raw ---\n${raw}`);
+    if (!targetMatch) throw stepError(`ACTION read tapi tidak ada TARGET.\n`, raw);
     const offsetMatch = raw.match(/OFFSET:\s*(-?\d+)/);
     const limitMatch = raw.match(/LIMIT:\s*(-?\d+)/);
     const step = { action, reasoning, target: targetMatch[1].trim() };
@@ -136,11 +199,11 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
   // sekarang (murah) daripada nanti pas udah mau eksekusi.
   if (action === 'delete' || action === 'rename' || action === 'move') {
     const targetMatch = raw.match(/TARGET:\s*(.*)/);
-    if (!targetMatch) throw new Error(`ACTION ${action} tapi tidak ada TARGET.\n--- raw ---\n${raw}`);
+    if (!targetMatch) throw stepError(`ACTION ${action} tapi tidak ada TARGET.\n`, raw);
     const step = { action, reasoning, target: targetMatch[1].trim() };
     if (action !== 'delete') {
       const destMatch = raw.match(/DEST:\s*(.*)/);
-      if (!destMatch) throw new Error(`ACTION ${action} butuh DEST (tujuan).\n--- raw ---\n${raw}`);
+      if (!destMatch) throw stepError(`ACTION ${action} butuh DEST (tujuan).\n`, raw);
       step.dest = destMatch[1].trim();
     }
     return step;
@@ -149,25 +212,25 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
   if (action === 'remember') {
     const keyMatch = raw.match(/KEY:\s*(.*)/);
     const valueMatch = raw.match(/VALUE:\s*(.*)/);
-  if (!keyMatch || !valueMatch) throw new Error(`ACTION remember tapi KEY/VALUE tidak lengkap.\n--- raw ---\n${raw}`);
+  if (!keyMatch || !valueMatch) throw stepError(`ACTION remember tapi KEY/VALUE tidak lengkap.\n`, raw);
     return { action, reasoning, key: keyMatch[1].trim(), value: valueMatch[1].trim() };
   }
   
   if (action === 'mcp_call') {
   const toolMatch = raw.match(/TOOL:\s*(.*)/);
   const paramsMatch = raw.match(/PARAMS:\s*(\{[\s\S]*\})/);
-  if (!toolMatch) throw new Error(`ACTION mcp_call tapi tidak ada TOOL.\n--- raw ---\n${raw}`);
+  if (!toolMatch) throw stepError(`ACTION mcp_call tapi tidak ada TOOL.\n`, raw);
   let toolArgs = {};
   if (paramsMatch) {
     try { toolArgs = JSON.parse(paramsMatch[1].trim()); }
-    catch (e) { throw new Error(`PARAMS bukan JSON valid: ${paramsMatch[1]}`); }
+    catch (e) { throw stepError(`PARAMS bukan JSON valid: ${paramsMatch[1]}`); }
   }
   return { action, reasoning, tool: toolMatch[1].trim(), toolArgs };
 }
 
   if (action === 'web_search') {
     const queryMatch = raw.match(/QUERY:\s*(.*)/);
-    if (!queryMatch) throw new Error(`ACTION web_search tapi tidak ada QUERY.\n--- raw ---\n${raw}`);
+    if (!queryMatch) throw stepError(`ACTION web_search tapi tidak ada QUERY.\n`, raw);
     return { action, reasoning, query: queryMatch[1].trim() };
   }
 
@@ -181,7 +244,7 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
   const startIdx = raw.indexOf('===CONTENT_START===');
   const endIdx = raw.indexOf('===CONTENT_END===');
   if (!targetMatch || startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
-    throw new Error(`ACTION edit tapi format TARGET/CONTENT tidak lengkap.\n--- raw ---\n${raw}`);
+    throw stepError(`ACTION edit tapi format TARGET/CONTENT tidak lengkap.\n`, raw);
   }
   const newContent = raw
     .slice(startIdx + '===CONTENT_START==='.length, endIdx)

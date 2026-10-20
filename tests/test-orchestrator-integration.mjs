@@ -53,7 +53,7 @@ try {
   console.log('\n[B] retry feedback lewat provider asli');
   srv = await makeServer([
     JSON.stringify({ tasks: [{ id: 1, role: 'architect', brief: 'x', dependsOn: null }] }),
-    JSON.stringify({ tasks: [{ id: 1, role: 'coder', brief: 'fix bug login', dependsOn: null }] }),
+    JSON.stringify({ tasks: [{ id: 1, role: 'coder', brief: 'Perbaiki bug login di src/auth.js', dependsOn: null }] }),
   ]);
   fs.writeFileSync(SETTINGS, JSON.stringify([{ name: 'mock', baseUrl: `http://127.0.0.1:${srv.address().port}/v1`, apiKey: 't', model: 'm', active: true }]));
   const rB = await plan('fix bug login', askWithFallback);

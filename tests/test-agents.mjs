@@ -59,7 +59,14 @@ check('ACTION_FORMAT diekspor & dipakai ulang', ACTION_FORMAT.length > 0 && SYST
 check('konstitusi ter-format (bukan toString array)', SYSTEM_PROMPT.includes('PRINSIP DASAR') && !SYSTEM_PROMPT.includes('],"'));
 
 console.log('\n[6] Batas aksi diketahui parser');
-check('KNOWN_ACTIONS lengkap (8 aksi)', KNOWN_ACTIONS.length === 8);
+// Aksi destruktif (delete/rename/move) masuk di M21. Yang penting bukan
+// jumlahnya, tapi: setiap aksi yang dibolehkan ke agent HARUS dikenali parser.
+// Kalau ada yang kelewat, agent bakal "boleh" melakukan sesuatu yang parse-nya
+// ditolak diam-diam.
+check('KNOWN_ACTIONS: 11 aksi (8 lama + delete/rename/move)',
+  KNOWN_ACTIONS.length === 11, `dapat ${KNOWN_ACTIONS.length}`);
+check('aksi destruktif dikenal parser',
+  ['delete', 'rename', 'move'].every(a => KNOWN_ACTIONS.includes(a)));
 check('setiap aksi agent subset KNOWN_ACTIONS',
   listAgents().every(ag => ag.actions.every(x => KNOWN_ACTIONS.includes(x))));
 

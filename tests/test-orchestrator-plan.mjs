@@ -13,7 +13,10 @@ function throws(fn) {
   try { fn(); return false; } catch { return true; }
 }
 
-const VALID = { tasks: [{ id: 1, role: 'researcher', brief: 'riset X', dependsOn: null }] };
+// CATATAN: brief harus >= 15 char dan kata kerja di depan. Sejak M22, validator
+// nolak brief yang cuma formalitas ('x', 'riset'), karena worker yang dikasih
+// brief sependek itu bakal nanya-nanya sendiri dan hasilnya ngawur.
+const VALID = { tasks: [{ id: 1, role: 'researcher', brief: 'Riset cara kerja debounce di JavaScript', dependsOn: null }] };
 
 console.log('\n[1] parsePlan — ekstrak JSON dari output kotor');
 check('JSON polos', parsePlan(JSON.stringify(VALID)).tasks.length === 1);
@@ -32,8 +35,8 @@ check('non-string melempar', throws(() => parsePlan(null)));
 console.log('\n[2] validatePlan — cek silang ke registry AGENTS');
 check('rencana valid -> tanpa masalah', validatePlan(VALID).length === 0);
 check('objek dengan 2 task valid', validatePlan({ tasks: [
-  { id: 1, role: 'researcher', brief: 'riset', dependsOn: null },
-  { id: 2, role: 'coder', brief: 'kode', dependsOn: 1 },
+  { id: 1, role: 'researcher', brief: 'Riset cara kerja debounce di JavaScript', dependsOn: null },
+  { id: 2, role: 'coder', brief: 'Implementasikan fungsi debounce di src/debounce.js', dependsOn: 1 },
 ] }).length === 0);
 check('bukan objek -> masalah', validatePlan('string').length > 0);
 check('array -> masalah', validatePlan([VALID]).length > 0);
@@ -79,7 +82,7 @@ const seenPrompts = [];
 const retryPlan = await plan('riset lalu kode', async (sys, usr) => {
   seenPrompts.push(usr);
   return seenPrompts.length === 1
-    ? JSON.stringify({ tasks: [{ id: 1, role: 'architect', brief: 'x', dependsOn: null }] })
+    ? JSON.stringify({ tasks: [{ id: 1, role: 'architect', brief: 'Bikin arsitektur modul pembayaran', dependsOn: null }] })
     : JSON.stringify(VALID);
 });
 check('attempt 1 invalid -> attempt 2 valid (ok:true)', retryPlan.ok && retryPlan.attempts === 2);

@@ -3,7 +3,7 @@
 import fs from 'fs';
 import path from 'path';
 import { askWithFallback, fallbackState } from './providers.js';
-import { planStep } from './plan.js';
+import { planStep, planStepWithRetry, buildHistoryText } from './plan.js';
 import { showDiff } from './diff.js';
 import { runCommand } from './bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js';
@@ -61,7 +61,32 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     dbg(`--- Loop ${i} ---`);
     dbg('fileSnapshot:', fileSnapshot.slice(0, 100) + (fileSnapshot.length > 100 ? '...' : ''));
 
-    const step = await planStep(askWithFallback, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools: toolsForAgent, webSearchCount, systemPromptOverride });
+    // Retry di sini, bukan biarin throw matiin task. Model gratisan kadang
+    // balas teks biasa; satu balasan jelek dulu = seluruh task mati.
+    const sr = await planStepWithRetry(askWithFallback, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools: toolsForAgent, webSearchCount, systemPromptOverride }, {
+      maxAttempts: 3,
+      onRetry: (n, max, msg) => {
+        print('info', `Balasan model gak keparse (percobaan ${n}/${max}) — minta ulang dengan koreksi...`);
+        dbg('retry karena:', msg.split('\n')[0]);
+      },
+    });
+
+    if (!sr.ok) {
+      // Habis 3 percobaan masih sampah. JANGAN throw — kasih hasil apa adanya
+      // biar user tau kenapa, dan progress sebelumnya gak hilang.
+      print('error', `Model gagal balas format yang benar setelah ${sr.attempts}x percobaan.`);
+      printBlock(String(sr.lastError || '').split('\n')[0], 2);
+      const fallbackSummary = history.length > 0
+        ? `Task berhenti: model tidak balas format yang benar.\n\nYang sudah dikerjakan (${history.length} langkah):\n${buildHistoryText(history)}`
+        : 'Task gagal: model tidak balas format yang benar sejak langkah pertama.';
+      if (threadId) {
+        logStep({ threadId, role: 'assistant', content: fallbackSummary, actionType: 'done', detail: { stopped: 'llm-format-failure', attempts: sr.attempts } });
+      }
+      return fallbackSummary;
+    }
+
+    const step = sr.step;
+    if (sr.attempts > 1) dbg(`step berhasil setelah ${sr.attempts} percobaan`);
     
     if (trackProvider) trackProvider(fallbackState.lastProvider);
     if (trackAction) trackAction(step.action);
@@ -209,7 +234,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       if (webSearchCount > 2) {
         print('info', 'Batas 2x web_search tercapai — memaksa rangkuman dari data yang ada.');
         const forcedInstruction = `${instruction}\n\n[SISTEM: Kamu sudah mencapai batas maksimal pencarian web. WAJIB ACTION: done sekarang. Tulis SUMMARY dari hasil search yang sudah ada di history dengan kata-katamu sendiri. DILARANG ACTION: web_search atau ACTION: mcp_call apapun di langkah ini.]`;
-        const forcedStep = await planStep(askWithFallback, { instruction: forcedInstruction, fileSnapshot, history, agentMd, recentMemory, availableTools: toolsForAgent, webSearchCount, systemPromptOverride });
+        const fr = await planStepWithRetry(askWithFallback, { instruction: forcedInstruction, fileSnapshot, history, agentMd, recentMemory, availableTools: toolsForAgent, webSearchCount, systemPromptOverride }, { maxAttempts: 2 });
+        const forcedStep = fr.ok ? fr.step : { action: 'done', summary: '', reasoning: 'paksa selesai (model gak kooperatif)' };
         if (forcedStep.action === 'done') {
           print('done', forcedStep.summary);
           if (threadId) {

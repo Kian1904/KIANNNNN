@@ -17,14 +17,18 @@ export function wrap(text, width) {
   for (const line of String(text).split('\n')) {
     if (!line.trim()) { out.push(''); continue; }
     if (line.length <= tw) { out.push(line); continue; }
-    const words = line.split(' ');
-    let cur = '';
+    // Pertahankan indentasi baris asli di baris lanjutan. Tanpa ini, teks yang
+    // di-wrap balik ke margin kiri dan struktur (brief di bawah task-nya)
+    // kelihatan kayak nyatu dengan elemen berikutnya.
+    const indent = (line.match(/^\s*/) || [''])[0];
+    const words = line.trim().split(' ');
+    let cur = indent;
     for (const word of words) {
-      if (!cur) { cur = word; continue; }
+      if (cur.trim() === '') { cur = indent + word; continue; }
       if (cur.length + 1 + word.length <= tw) { cur += ' ' + word; }
-      else { out.push(cur); cur = word; }
+      else { out.push(cur); cur = indent + word; }
     }
-    if (cur) out.push(cur);
+    if (cur.trim()) out.push(cur);
   }
   return out.length ? out : [''];
 }
@@ -174,6 +178,7 @@ export function banner(version, model, agentCount, toolCount) {
 export var PROMPT = '  \u2502 > ';
 
 export var SLASH_COMMANDS = [
+  { cmd: '/squad',    desc: 'rencana squad → review → eksekusi' },
   { cmd: '/exit',     desc: 'keluar dari K-sRouter' },
   { cmd: '/mode',     desc: 'mode approval: safe | wellwell | yolo' },
   { cmd: '/route',    desc: 'auto-routing ke squad: on | off | test <task>' },
