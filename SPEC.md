@@ -292,11 +292,75 @@ dan `Qwen3.5-397B-A17B` yang cuma reasoning). TERVERIFIKASI end-to-end lewat
 **Catatan cascade lama (bukan default seed lagi — lihat tabel atas untuk kondisi aktual):**
 xkiro-coder, gemini, deepseek-v4-pro sempat ada tapi beberapa sudah gak aktif/dihapus.
 
+## M18 — UI Upgrade, Streaming, npm Global, MCP Catalog (2026-10-20)
+
+Empat kerjaan, semuanya udah terverifikasi (test), bukan klaim kosong.
+
+### 1. Streaming response (`src/providers.js` + `src/run-casual.js`)
+- `makeOpenAICompatible` sekarang nerima argumen ketiga **opsional** `onToken`.
+  **Signature `ask(systemPrompt, userPrompt)` TETAP sama** — kalau `onToken`
+  gak dikasih, jalurnya masih `await res.json()` kayak dulu. Ini sengaja:
+  biar test lama yang nge-mock `askWithFallback` gak pecah.
+- Kalau `onToken` dikasih → POST pakai `stream: true`, baca SSE
+  (`data: {...}` per baris), tiap `choices[0].delta.content` dipanggil ke
+  `onToken`, dan **full text tetep di-return** (biar caller lama aman).
+- Dukungan provider non-SSE: kalau `Content-Type` bukan `text/event-stream`,
+  fallback baca JSON penuh lalu kirim sekali ke `onToken`.
+- **BUG NYATA YANG KETEMU & DIBENERIN:** dulu URL dibangun pakai concat string
+  (`baseUrl + '/chat/completions'`). Kalau `baseUrl` punya query string
+  (mis. `http://host/?mode=reasoning-only`), hasilnya jadi
+  `http://host/?mode=reasoning-only/chat/completions` — query rusak.
+  Sekarang pakai `new URL()` + `pathname` (query dipertahankan, `/chat/completions`
+  digabung ke path). Ini fix bug lama, bukan cuma buat streaming.
+- `src/run-casual.js`: reply casual sekarang stream kata-per-kata ke stdout.
+  Blok ` thinking...</think>` **disaring real-time** (ditahan sampai ketemu
+  penanda tutup, sisanya baru dicetak). Tombol matiin: `K_SROUTER_STREAM=0`.
+- `run-task.js` **sengaja TIDAK** di-streaming: output-nya terstruktur per-step
+  (label + diff + approval), kalau di-stream malah bikin berantakan.
+
+### 2. npm global (`package.json` + `bin/kian`)
+- `package.json` dikasih field `bin`: `kian` dan `ksrouter` → `./bin/kian`.
+  Tanpa field ini `npm link` gak bikin command apa-apa.
+- `npm link` udah dijalanin. Verifikasi: `which kian` →
+  `/data/data/com.termux/files/usr/bin/kian` (symlink ke
+  `../lib/node_modules/k-srouter-cli/bin/kian`), dan `kian` dipanggil dari
+  luar repo (`cd /tmp`) → banner + REPL jalan normal.
+- Command `kian` bisa dipakai dari folder manapun tanpa `cd ~/KIANNNNN` dulu.
+
+### 3. MCP catalog (`mcp/catalog/`)
+- `ktools.js` — entry connector `id: 'ktools'`, `url: null` (URL **wajib dari
+  env `MCP_SERVER_URL`**, gak boleh hardcode di source biar aman di-commit).
+- `index.js` — export `CATALOG`, `resolveCatalog(env)`, `findInCatalog(id)`.
+  `resolveCatalog` buang entry yang env-nya belum diisi → user gak ditawarin
+  connector mati.
+- `src/commands/connect.js` di-upgrade pakai `resolveCatalog()` (dulu pakai
+  `CATALOG` mentah yang masih ada `c.url &&` — jadi entry env-based kekalik skip),
+  plus subcommand baru:
+  - `/connect catalog` → daftar connector yang env-nya udah siap
+  - `/connect catalog add <id>` → tambahin connector dari catalog
+- `mcp/catalog/mcp-catalog-index.js` (file duplikat lama, gak di-import siapa pun)
+  **dihapus**.
+
+### 4. Test baru
+- `tests/test-streaming.mjs` (106 baris) — **12 pass**: mock SSE server nyata
+  (`tests/helpers/mock-sse-server.mjs`, zero-dep `node:http`), ngecek jalur
+  streaming real (chunk-per-chunk, urutan chunk, full text di-return,
+  fallback provider non-SSE, URL query string gak rusak, mode reasoning-only
+  tetep throw kalau kosong). **Self-contained**: nyalin repo ke tmp sebelum
+  import, jadi `.settings.json` asli gak ke-overwrite.
+- `tests/test-mcp-catalog.mjs` (16 pass) — ngecek env kosong → entry dibuang,
+  env terisi → entry lengkap, `envKeyVar` kebaca, `findInCatalog`, dan
+  file duplikat udah gak ada.
+
+**Catatan verifikasi:** blok "12 pass / 16 pass" ini udah dijalanin beneran
+dan itu output asli, bukan estimasi.
+
 ## NEXT SESSION START POINT
 **Baca ini dulu sebelum kerja apapun.**
 
 M14 (Multi-agent PoC) + M15 (protokol JSON) + M16 (fan-out eksekusi) +
-M17 (Telegram Squad + hardening) selesai.
+M17 (Telegram Squad + hardening) selesai. **M18 (UI upgrade + streaming +
+npm global + MCP catalog) selesai 2026-10-20** — lihat seksi M18 di bawah.
 Sekarang multi-agent UDAH JALAN BENERAN **di dua surface**: REPL `node index.js`
 dan Telegram `node src/telegram-bot.js` — dua-duanya punya `/agent /plan /squad`
 + approval yang aturannya SATU (`src/approval.js`). `/squad <task>` ngedekomposisi

@@ -1,7 +1,7 @@
 // lib/commands/connect.js - /connect command handler: MCP plugin manager
 
 import { listConnections, addConnection, toggleConnection } from '../../mcp/registry.js';
-import { CATALOG } from '../../mcp/catalog/index.js';
+import { resolveCatalog, findInCatalog } from '../../mcp/catalog/index.js';
 import { print, printBlock } from '../ui.js';
 
 /**
@@ -27,7 +27,7 @@ export async function handleConnect(arg) {
     }
 
     const known = new Set(active.map(c => c.name));
-    const remaining = CATALOG.filter(c => c.url && !known.has(c.name));
+    const remaining = resolveCatalog().filter(c => !known.has(c.name));
     printBlock('');
     print('connect', 'Catalog (belum ditambahkan):');
     if (remaining.length === 0) {
@@ -63,7 +63,7 @@ export async function handleConnect(arg) {
     }
 
     const customName = rest.slice(0, -1).join(' ').trim();
-    const known = CATALOG.find(c => c.url === url);
+    const known = resolveCatalog().find(c => c.url === url);
     const name = customName || (known ? known.name : url.replace(/^https?:\/\//, '').split('/')[0]);
 
     const existing = listConnections().find(c => c.name === name);
@@ -75,6 +75,53 @@ export async function handleConnect(arg) {
     const conn = addConnection({ name, url, active: true, apiKey });
     print('connect', `${conn.name} ditambahkan (${conn.url})${apiKey ? ' dengan API key' : ''}.`);
     return true;
+  }
+
+  // /connect catalog           — daftar connector dari catalog yang env-nya siap
+  // /connect catalog add <id>  — tambahkan connector catalog by id
+  if (sub === 'catalog') {
+    const resolved = resolveCatalog();
+    const known = new Set(listConnections().map(c => c.name));
+    const candidates = resolved.filter(c => !known.has(c.name));
+
+    if (parts.length === 1) {
+      print('connect', 'Catalog siap pakai (env terisi):');
+      if (candidates.length === 0) {
+        printBlock('(kosong — isi env dulu, mis. MCP_SERVER_URL di .env)');
+      } else {
+        candidates.forEach(c => printBlock(`${c.id} — ${c.name}: ${c.description}`));
+      }
+      print('info', 'tambah: /connect catalog add <id>');
+      return false;
+    }
+
+    if (parts[1].toLowerCase() === 'add') {
+      const id = (parts[2] || '').trim().toLowerCase();
+      if (!id) {
+        print('warn', 'contoh: /connect catalog add ktools');
+        return false;
+      }
+      const entry = candidates.find(c => c.id === id) || resolved.find(c => c.id === id);
+      if (!entry) {
+        print('warn', `id "${id}" gak ketemu, atau env-nya belum diisi.`);
+        return false;
+      }
+      if (known.has(entry.name)) {
+        print('warn', `"${entry.name}" udah ditambahkan.`);
+        return false;
+      }
+      const conn = addConnection({
+        name: entry.name,
+        url: entry.url,
+        active: true,
+        apiKey: entry.apiKey || undefined,
+      });
+      print('connect', `${conn.name} ditambahkan dari catalog (${conn.url}).`);
+      return true;
+    }
+
+    print('warn', `subcommand catalog tidak dikenal: "${parts[1]}". pakai: /connect catalog [add <id>]`);
+    return false;
   }
 
   // /connect key <name> <apiKey>

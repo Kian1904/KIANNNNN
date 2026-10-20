@@ -3,6 +3,21 @@
   "version": "0.2.0",
   "type": "module",
   "main": "./index.js",
+  "bin": {
+    "kian": "./bin/kian",
+    "ksrouter": "./bin/kian"
+  },
+  "files": [
+    "index.js",
+    "bin/",
+    "src/",
+    "mcp/",
+    "AGENT.md",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "chalk": "^4.1.2",
     "dotenv": "^16.4.5"
