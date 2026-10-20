@@ -42,6 +42,26 @@ Kalau hasil read berakhir dengan "[...ADA N BARIS LAGI]", file itu kepotong.
 Lanjutkan dengan read yang sama + set OFFSET ke baris lanjutan yang disebut.
 JANGAN ngaku file udah kebaca penuh kalau masih ada baris tersisa.
 
+Format hapus file:
+REASONING: <alasan singkat>
+ACTION: delete
+TARGET: <path file yang mau dihapus>
+
+PAKAI INI CUMA KALAU USER EKSPLISIT MINTA HAPUS. Jangan pernah hapus file
+"sekalian" tanpa diminta. Direktori yang gak kosong akan DITOLAK otomatis —
+kalau user memang mau hapus rekursif, pakai ACTION: bash dan biarkan approval
+yang mutusin.
+
+Format pindah / ganti nama file:
+REASONING: <alasan singkat>
+ACTION: rename
+TARGET: <path asal>
+DEST: <path tujuan>
+
+(ACTION: move sama formatnya — bedanya cuma niat: rename = ganti nama,
+move = pindah direktori. Gak ada file yang ditimpa: kalau DEST sudah ada,
+operasi gagal.)
+
 Format list isi direktori:
 REASONING: <alasan singkat>
 ACTION: list_dir

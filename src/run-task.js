@@ -11,6 +11,7 @@ import { callTool } from '../mcp/client.js';
 import { searchWeb } from './search.js';
 import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
+import { inspectTarget, describeTarget, rejectReason, applyFileOp } from './file-ops.js';
 import { composeAgentPrompt, filterToolsForAgent } from './agents.js';
 
 // M12 — Extended MAX_LOOPS
@@ -309,6 +310,93 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       history.push({ action: 'edit', target, approved: true });
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `File edited: ${target}`, actionType: 'edit', detail: { target, applied: true, isNewFile: !existedBefore }, reasoning: step.reasoning });
+      }
+      continue;
+    }
+
+    // --- DELETE / RENAME / MOVE ---
+    // Gate-nya ada di modes.js (DESTRUCTIVE_ACTIONS) dan approval.js
+    // (isDangerous). Handler ini yang eksekusi — TIDAK boleh nge-bypass gate,
+    // dan SELALU minta approval (safe & wellwell nolak, yolo auto-approve).
+    if (step.action === 'delete' || step.action === 'rename' || step.action === 'move') {
+      actionIndicator(step.action, step.dest ? `${step.target} → ${step.dest}` : step.target);
+
+      // Guard path SEBELUM apa-apa — jangan tampilin diff buat path terblokir.
+      if (!isSafePath(step.target)) {
+        print('blocked', `Path diblokir karena keamanan: ${step.target}`);
+        history.push({ action: step.action, target: step.target, approved: false, blocked: true });
+        if (threadId) {
+          logStep({ threadId, role: 'assistant', content: `${step.action} blocked (unsafe path): ${step.target}`, actionType: step.action, detail: { target: step.target, blocked: true }, reasoning: step.reasoning, approved: false });
+        }
+        continue;
+      }
+
+      const info = inspectTarget(step.target);
+      const reject = rejectReason(step.target, info);
+      if (reject) {
+        print('blocked', `Tidak bisa ${step.action} ${step.target}: ${reject}`);
+        history.push({ action: step.action, target: step.target, approved: false, error: reject });
+        if (threadId) {
+          logStep({ threadId, role: 'assistant', content: `${step.action} rejected: ${reject}`, actionType: step.action, detail: { target: step.target, error: reject }, reasoning: step.reasoning, approved: false });
+        }
+        continue;
+      }
+
+      // Tampilkan APA yang bakal kena, jangan cuma nama file. Hapus file
+      // tanpa nunjukin isinya = user approve sesuatu yang dia gak liat.
+      print('diff', step.dest ? `${step.target} → ${step.dest}` : step.target);
+      const desc = describeTarget(step.target, info);
+      if (info.kind === 'file_binary') {
+        printBlock(desc);
+      } else if (step.action === 'delete' && info.content !== null && info.content !== undefined) {
+        const previewLines = (info.preview || '').split('\n');
+        const body = previewLines.map((l, i) => `  ${i + 1} | ${l}`).join('\n');
+        printBlock(`${desc}\n\nIsi yang bakal DIHAPUS:\n${body}${info.more > 0 ? `\n  ... (${info.more} baris lagi)` : ''}`);
+      } else {
+        printBlock(desc);
+      }
+      sep();
+
+      const opApproval = await askApproval(step.action);
+      if (threadId) {
+        logStep({ threadId, role: 'assistant', content: `${step.action} requested: ${step.target}`, actionType: step.action, detail: { target: step.target, dest: step.dest, providerUsed: fallbackState.lastProvider }, reasoning: step.reasoning, approved: opApproval.approved });
+      }
+      if (!opApproval.approved) {
+        print('rejected', 'Langkah dibatalkan, task dihentikan.');
+        history.push({ action: step.action, target: step.target, approved: false });
+        return `${step.action} dibatalkan, task dihentikan.`;
+      }
+      if (opApproval.condition) {
+        history.push({ action: 'user_condition', condition: opApproval.condition });
+      }
+
+      // SNAPSHOT WAJIB buat delete. Tanpa isi file di DB, /rollback cuma bisa
+      // bilang "file-nya udah ilang". Gagal simpan = hapus DIBATALKAN.
+      // rename/move gak butuh: file-nya masih ada, cuma pindah nama/lokasi.
+      if (step.action === 'delete' && info.kind === 'file') {
+        try {
+          saveSnapshot({ filepath: step.target, content: info.content, isNewFile: false });
+          print('snapshot', `${step.target} disimpan — /rollback bisa balikin.`);
+        } catch (err) {
+          print('error', `Gagal simpan snapshot: ${err.message} — delete DIBATALKAN.`);
+          return 'Delete dibatalkan: snapshot gagal disimpan.';
+        }
+      }
+
+      const res = applyFileOp(step.action, step.target, step.dest);
+      if (!res.ok) {
+        print('error', `Gagal ${step.action} ${step.target}: ${res.error}`);
+        history.push({ action: step.action, target: step.target, approved: true, error: res.error });
+        return `${step.action} gagal: ${res.error}`;
+      }
+
+      const verb = step.action === 'delete' ? 'dihapus'
+        : step.action === 'rename' ? `di-rename ke ${step.dest}` : `dipindah ke ${step.dest}`;
+      print(`${step.action}_ok`, `${step.target} ${verb}.`);
+      lastTarget = step.dest || step.target;
+      history.push({ action: step.action, target: step.target, dest: step.dest, approved: true });
+      if (threadId) {
+        logStep({ threadId, role: 'assistant', content: `${step.action} applied: ${step.target}`, actionType: step.action, detail: { target: step.target, dest: step.dest, applied: true }, reasoning: step.reasoning });
       }
       continue;
     }

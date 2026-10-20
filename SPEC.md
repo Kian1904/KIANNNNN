@@ -467,7 +467,11 @@ Yang bisa dikerjakan berikutnya:
    di jalur pesan biasa (`M20`). Baca seksi M19 + M20 di bawah.
    Sisa yang belum: preview rencana squad yang dedicated sebelum eksekusi.
 
-2. **Paralel dalam wave (optimalisasi):**
+2. ~~**Aksi destruktif lain:**~~ ✅ SELESAI (`M21`) — `delete`, `rename`, `move`
+   ada di `src/file-ops.js`. Termasuk fix `/rollback` yang dulu gak bisa
+   pulihin file yang dihapus. Lihat seksi M21.
+
+3. **Paralel dalam wave (optimalisasi):**
    - Setelah `askApproval` dibikin concurrency-safe (mutex/queue), tukar inner
      loop `executePlan` ke `Promise.allSettled`. Struktur wave udah siap.
    - CATATAN M17: approval Telegram punya busy-gate + state terpusat, jadi lebih
@@ -675,3 +679,75 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
+
+## M21 — Aksi Destruktif: delete / rename / move (2026-10-20)
+
+Gate-nya udah lama ada di `src/modes.js` (`DESTRUCTIVE_ACTIONS`) tapi action-nya
+belum pernah dibuat — jadi `/mode wellwell` punya aturan buat aksi yang gak bisa
+dijalankan. Sekarang action-nya ada, dan gate-nya beneran kepakai.
+
+### Kenapa dipisah ke `src/file-ops.js`
+
+Handler destruktif gak boleh tersebar. Semua operasi lewat SATU pintu:
+`inspectTarget` (lihat dulu) → `rejectReason` (boleh gak) → `applyFileOp`
+(eksekusi). Kalau guard-nya ada di tiga tempat, cepat atau lambat ada yang
+ketinggalan.
+
+### Aturan yang dipegang
+
+- **Lihat dulu, baru hapus.** `delete` nampilin isi file (baris bernomor) ke
+  user sebelum minta approval. Hapus file tanpa nunjukin isinya = user
+  approve sesuatu yang dia gak lihat.
+- **Direktori gak kosong DITOLAK.** Bukan "dihapus rekursif". Kalau user
+  memang mau rekursif, pakai `ACTION: bash` — biar approval command yang
+  mutusin, bukan action ini diam-diam.
+- **Gak ada file yang ditimpa.** `rename`/`move` ke `DEST` yang udah ada =
+  gagal. Gak ada auto-overwrite, gak ada `-f`.
+- **Snapshot WAJIB buat `delete`.** Gagal simpan snapshot = delete DIBATALKAN.
+  `rename`/`move` gak butuh — file-nya masih ada, cuma pindah nama.
+- **`rename`/`move` tanpa `DEST` → throw.** Parser fail-closed, bukan bikin
+  langkah tanpa tujuan.
+
+### BUG yang ketangkep: `/rollback` gak bisa pulihin file yang dihapus
+
+`/rollback` yang lama cuma dirancang buat `edit`:
+
+```js
+const current = readFileSafe(filepath);   // file hilang -> "(file tidak ditemukan)"
+...
+fs.writeFileSync(filepath, snap.content); // nulis isi snapshot
+```
+
+Dua masalah nyata:
+
+1. `is_new_file` cuma nangani file BARU → rollback = hapus file. Gak ada
+   cabang buat file LAMA yang udah dihapus → harus DIPULIHIN.
+2. `readFileSafe` di file yang hilang balikin string placeholder. REPL lama
+   sempat nulis placeholder itu ke disk.
+
+Fix (`src/repl.js`):
+
+- File hilang + ada snapshot berisi → **PULIHIN**: bikin direktori induk kalau
+  perlu, tulis ulang isinya, konfirmasi teksnya beda ("Pulihkan dari
+  snapshot?").
+- **Guard data-hilang:** snapshot KOSONG sementara file masih ada → rollback
+  **DIBATALKAN**. Nulis `""` ke disk bukan rollback, itu menghapus isi file.
+
+Jadi delete punya jalan pulang beneran, bukan cuma niat baik.
+
+### Surface
+
+- `src/file-ops.js` (baru, 176 baris)
+- `src/plan.js` — parser `delete`/`rename`/`move` + `DEST` + label history
+- `src/run-task.js` — handler + snapshot wajib + guard path
+- `src/prompts/system.js` — format 3 action baru
+- `src/repl.js` — fix `/rollback` (pulihin + guard snapshot kosong)
+
+### Tes
+
+`tests/test-file-ops.mjs` — **70 pass**. Nutup: gate per mode (wellwell tetap
+nanya buat destructive), path diblokir, direktori gak kosong ditolak, DEST
+ditimpa ditolak, DEST kosong ditolak, round-trip snapshot → hapus → pulihin,
+dan guard snapshot kosong.
+
+Suite total: **464 pass, 0 fail, 22 file**.

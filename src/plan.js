@@ -18,6 +18,10 @@ function buildHistoryText(history) {
     if (h.action === 'edit') {
       return `Langkah ${i + 1}: EDIT ${h.target} — ${h.approved ? 'diterapkan' : 'DITOLAK user'}`;
     }
+    if (h.action === 'delete' || h.action === 'rename' || h.action === 'move') {
+      const dest = h.dest ? ` → ${h.dest}` : '';
+      return `Langkah ${i + 1}: ${h.action.toUpperCase()} ${h.target}${dest} — ${h.approved ? 'diterapkan' : 'DITOLAK user'}`;
+    }
     if (!h.approved) {
       return `Langkah ${i + 1}: BASH "${h.command}" — DITOLAK user`;
     }
@@ -88,7 +92,7 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
   raw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
   const reasoningMatch = raw.match(/REASONING:\s*(.*)/);
   const reasoning = reasoningMatch ? reasoningMatch[1].trim() : '';
-  const actionMatch = raw.match(/ACTION:\s*(edit|bash|done|read|list_dir|remember|mcp_call|web_search|chat)/);
+  const actionMatch = raw.match(/ACTION:\s*(edit|bash|done|read|list_dir|remember|mcp_call|web_search|chat|delete|rename|move)/);
        dbg('raw LLM response:', raw.slice(0, 500) + (raw.length > 500 ? '...[truncated]' : ''));
 
   if (!actionMatch) {
@@ -126,6 +130,20 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
   if (action === 'list_dir') {
     const targetMatch = raw.match(/TARGET:\s*(.*)/);
     return { action, reasoning, target: targetMatch ? targetMatch[1].trim() : '.' };
+  }
+
+  // Aksi destruktif. DEST cuma dipakai rename/move — kalau gak ada, throw
+  // sekarang (murah) daripada nanti pas udah mau eksekusi.
+  if (action === 'delete' || action === 'rename' || action === 'move') {
+    const targetMatch = raw.match(/TARGET:\s*(.*)/);
+    if (!targetMatch) throw new Error(`ACTION ${action} tapi tidak ada TARGET.\n--- raw ---\n${raw}`);
+    const step = { action, reasoning, target: targetMatch[1].trim() };
+    if (action !== 'delete') {
+      const destMatch = raw.match(/DEST:\s*(.*)/);
+      if (!destMatch) throw new Error(`ACTION ${action} butuh DEST (tujuan).\n--- raw ---\n${raw}`);
+      step.dest = destMatch[1].trim();
+    }
+    return step;
   }
 
   if (action === 'remember') {

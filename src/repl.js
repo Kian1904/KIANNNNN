@@ -2,6 +2,7 @@
 
 import readline from 'readline';
 import fs from 'fs';
+import path from 'path';
 import { askWithFallback, PROVIDER_NAMES, setModelPrimary, getModelPrimary } from './providers.js';
 import { runCasual } from './run-casual.js';
 import { runInstruction, getActiveAgent, setActiveAgent, listAgents, plan, executePlan } from './orchestrator.js';
@@ -225,12 +226,37 @@ async function startREPL() {
       }
 
       print('diff', `${filepath}  (current → snapshot ${snap.created_at})`);
-      printBlock(showDiff(current === '(file tidak ditemukan)' || current.startsWith('(ACCESS DENIED') ? '' : current, snap.content));
+      const currentMissing = current === '(file tidak ditemukan)';
+
+      // Snapshot KOSONG sementara file masih ada = kita gak punya isi asli buat
+      // dipulihin. Nulis "" ke disk = MENGHAPUS ISI FILE, bukan rollback.
+      // Jangan pernah lakuin itu — lebih baik kasih tau daripada kehilangan data.
+      if (!currentMissing && !snap.content) {
+        print('rollback', `Snapshot ${snap.created_at} kosong — tidak ada isi untuk dikembalikan.`);
+        print('rollback', 'Rollback DIBATALKAN biar isi file sekarang gak ketimpa kosong.');
+        continue;
+      }
+
+      printBlock(showDiff(currentMissing || current.startsWith('(ACCESS DENIED') ? '' : current, snap.content));
       sep();
-      const confirm = await ask('  Rollback ke snapshot ini? (y/n): ');
+      // File HILANG tapi ada snapshot berisi: itu jejak file yang di-DELETE.
+      // Rollback = PULIHIN, bukan nulis "(file tidak ditemukan)" ke disk.
+      const promptText = currentMissing
+        ? '  File sudah tidak ada. Pulihkan dari snapshot? (y/n): '
+        : '  Rollback ke snapshot ini? (y/n): ';
+      const confirm = await ask(promptText);
       if (confirm.trim().toLowerCase() === 'y') {
-        fs.writeFileSync(filepath, snap.content, 'utf8');
-        print('rollback', `${filepath} dikembalikan ke snapshot ${snap.created_at}.`);
+        try {
+          // Buat direktori induk kalau file aslinya di subfolder yang udah gak ada.
+          const parent = path.dirname(filepath);
+          if (parent && !fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true });
+          fs.writeFileSync(filepath, snap.content, 'utf8');
+          print('rollback', currentMissing
+            ? `${filepath} DIPULIHKAN dari snapshot ${snap.created_at}.`
+            : `${filepath} dikembalikan ke snapshot ${snap.created_at}.`);
+        } catch (err) {
+          print('error', `Gagal tulis ${filepath}: ${err.message}`);
+        }
       } else {
         print('rollback', 'Dibatalkan.');
       }
