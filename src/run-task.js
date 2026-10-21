@@ -15,6 +15,7 @@ import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
 import { inspectTarget, describeTarget, rejectReason, rejectWriteReason, applyFileOp, applySafeFileOp } from './file-ops.js';
 import { composeAgentPrompt, filterToolsForAgent } from './agents.js';
+import { preflightEnvironment } from './environment.js';
 
 // M12 — Extended MAX_LOOPS
 const MAX_LOOPS = parseInt(process.env.MAX_LOOPS) || 25;
@@ -43,6 +44,17 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
   let webSearchCount = 0;
 
   // --- Konfigurasi agent (null = generic, perilaku lama persis) ---
+  if (agentConfig?.environment) {
+    const preflight = await preflightEnvironment(agentConfig.environment);
+    if (preflight.status === 'blocked') {
+      const reason = preflight.missing.map(x => `${x.type}:${x.name || x.path}`).join(', ');
+      print('blocked', `Environment agent "${agentConfig.name}" belum siap: ${reason}`);
+      return `Task diblokir: environment ${agentConfig.name} belum siap (${reason}).`;
+    }
+    if (preflight.status === 'degraded') {
+      print('warn', `Environment agent "${agentConfig.name}" degraded: ${preflight.optionalMissing.map(x => `${x.type}:${x.name || x.path}`).join(', ')}`);
+    }
+  }
   const maxLoops = (agentConfig && agentConfig.maxLoops) || MAX_LOOPS;
   let systemPromptOverride = agentConfig ? composeAgentPrompt(agentConfig, agentMd) : null;
   const toolsForAgent = agentConfig

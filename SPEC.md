@@ -463,7 +463,7 @@ Cara test manual di Telegram (butuh `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USE
 
 Yang bisa dikerjakan berikutnya:
 
-1. ~~**Auto-routing + review + research + verification + parallel wave:**~~ ✅ SELESAI — heuristik (`M19/M20`), review (`M22`), `web_fetch` + hardening (`M23/M26`), verification/evidence (`M24/M27`), dan parallel wave dengan approval queue (`M28`). Baca seksi M19, M20, M22–M28.
+1. ~~**Auto-routing + review + research + verification + parallel wave + environments:**~~ ✅ SELESAI — M19–M32 mencakup review, research, verification, parallel wave, environment preflight, project detection, dan runtime adapters. Baca seksi M19–M32.
 
 2. ~~**Aksi destruktif lain:**~~ ✅ SELESAI (`M21`) — `delete`, `rename`, `move`
    ada di `src/file-ops.js`. Termasuk fix `/rollback` yang dulu gak bisa
@@ -677,6 +677,42 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
+
+## M32 — Optional Python / Go / TypeScript Toolchain Adapters (2026-10-21)
+
+`src/toolchains.js` mendefinisikan adapter eksplisit untuk Python, Go,
+TypeScript, dan JavaScript. Node tetap menjadi host/orchestrator; runtime lain
+hanya dipanggil sebagai capability terkontrol dengan timeout dan approval.
+Python dan Go diverifikasi tersedia di environment ini. TypeScript dicatat
+sebagai optional karena `tsc` belum terpasang.
+
+## M31 — Project Language Detection (2026-10-21)
+
+`src/project-language.js` mendeteksi bahasa berdasarkan ekstensi file dan marker
+project seperti `go.mod`, `package.json`, `tsconfig.json`, dan `pyproject.toml`.
+Hasil diberi score deterministik dan tidak mengarang bahasa hanya dari prompt.
+
+## M30 — Multi-Runtime Execution (2026-10-21)
+
+Toolchain runtime punya `runToolchain()` dengan approval, cwd eksplisit,
+timeout, exit code, stdout, dan stderr. Output dapat diteruskan ke verifier;
+command runtime tidak melewati bypass approval.
+
+## M29 — Agent Environment Contracts + Preflight (2026-10-21)
+
+Setiap role sekarang punya contract environment: command wajib/opsional,
+environment variable tanpa membocorkan nilainya, path read/write, capability,
+dan kebutuhan network. `preflightEnvironment()` menghasilkan `ready`,
+`degraded`, atau `blocked` sebelum `runTask` role dijalankan.
+
+- `blocked` menghentikan task dengan alasan deterministik;
+- `degraded` tetap boleh jalan dan hanya melaporkan requirement opsional;
+- secret hanya dicek ada/tidak, nilainya tidak pernah dikembalikan.
+
+## Verifikasi M29–M32
+
+- contract/preflight/language/toolchain: **13 pass**;
+- suite: **580 pass, 0 fail, 31 file**.
 
 ## M28 — Parallel Wave + Approval Queue (2026-10-21)
 

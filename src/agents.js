@@ -15,6 +15,7 @@ import { ACTION_FORMAT, SYSTEM_PROMPT } from './prompts/system.js';
  * @property {string[]|null} mcpTools - [] = tanpa MCP, null = semua MCP tool, ['a','b'] = whitelist
  * @property {number} maxLoops     - batas langkah ReAct untuk agent ini
  * @property {boolean} search      - apakah agent ini boleh web_search (aturan SEARCH_RULES ikut)
+ * @property {Object} environment  - runtime/path/env contract yang harus dipreflight
  */
 
 // Aksi yang dikenal parser di src/plan.js (done selalu boleh, tidak perlu dicatat)
@@ -34,6 +35,7 @@ risetmu, jangan memaksakan aksi di luar kapasitasmu.`,
     mcpTools: [],      // tanpa MCP
     maxLoops: 12,
     search: true,
+    environment: { commands: [], env: [], paths: { read: ['.'], write: [] }, capabilities: ['web.search', 'web.fetch', 'filesystem.read'], network: true },
   },
 
   coder: {
@@ -49,6 +51,7 @@ Utamakan edit yang benar dan verifikasi lewat bash sebelum bilang done.`,
     mcpTools: null,    // semua MCP tool
     maxLoops: 25,
     search: false,
+    environment: { commands: [{ name: 'node', required: true }], env: [], paths: { read: ['.'], write: ['src', 'tests'] }, capabilities: ['filesystem.read', 'filesystem.write', 'shell.test'], network: false },
   },
 
   reviewer: {
@@ -64,6 +67,7 @@ Selesai dengan SUMMARY berisi daftar temuan, atau "tidak ada temuan signifikan".
     mcpTools: [],      // tanpa MCP
     maxLoops: 12,
     search: false,
+    environment: { commands: [{ name: 'node', required: true }], env: [], paths: { read: ['.'], write: [] }, capabilities: ['filesystem.read', 'shell.test'], network: false },
   },
 };
 
