@@ -463,7 +463,7 @@ Cara test manual di Telegram (butuh `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USE
 
 Yang bisa dikerjakan berikutnya:
 
-1. ~~**Auto-routing + review + research + verification + parallel wave + environments:**~~ ✅ SELESAI — M19–M32 mencakup review, research, verification, parallel wave, environment preflight, project detection, dan runtime adapters. Baca seksi M19–M32.
+1. ~~**Auto-routing + review + research + verification + environments + focused research:**~~ ✅ SELESAI — M19–M34 mencakup review, verification, parallel wave, environment preflight, runtime adapters, dan fokus data web. Baca seksi M19–M34.
 
 2. ~~**Aksi destruktif lain:**~~ ✅ SELESAI (`M21`) — `delete`, `rename`, `move`
    ada di `src/file-ops.js`. Termasuk fix `/rollback` yang dulu gak bisa
@@ -677,6 +677,24 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
+
+## M34 — Fokus Data Riset, Bukan Copy-Paste Halaman (2026-10-21)
+
+M33 sudah membatasi preview terminal, tetapi halaman BMKG masih membawa
+navigasi panjang ke history sehingga model dapat terdistraksi atau menjawab
+bahwa data tidak tersedia. M34 menambah `focusWebText()`:
+
+- membuang menu/navigasi/footer umum;
+- mempertahankan kota, kondisi cuaca, suhu, kelembapan, dan istilah query;
+- menyimpan teks fokus bounded untuk reasoning;
+- preview terminal tetap pendek.
+
+Test `tests/test-web-focus.mjs`: **5 pass**. Suite: **585 pass, 0 fail, 32 file**.
+
+## M33 — Tampilkan Preview Riset, Simpan Konteks Lengkap (2026-10-21)
+
+Terminal hanya menampilkan preview pendek dari `web_fetch`, sementara isi halaman
+masuk ke history untuk reasoning. Ini mencegah user dibanjiri copy-paste halaman.
 
 ## M32 — Optional Python / Go / TypeScript Toolchain Adapters (2026-10-21)
 

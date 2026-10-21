@@ -9,7 +9,7 @@ import { runCommand } from './bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js';
 import { callTool } from '../mcp/client.js';
 import { searchWeb } from './search.js';
-import { fetchWebPage } from './web-fetch.js';
+import { fetchWebPage, focusWebText } from './web-fetch.js';
 import { verifyAction, verifyCompletion } from './verifier.js';
 import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
@@ -280,7 +280,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           print('info', `Batas search tercapai — ambil isi sumber: ${chosen}`);
           const page = await fetchWebPage(chosen);
           if (page.ok) {
-            history.push({ action: 'web_fetch', url: page.url, summary: page.text.slice(0, 30000) });
+            history.push({ action: 'web_fetch', url: page.url, summary: focusWebText(page.text, instruction).slice(0, 30000) });
             actionIndicator('web_fetch', chosen);
             printBlock(page.text.slice(0, 800), 2);
             print('info', `Isi halaman disimpan ke history (${page.text.length} karakter) — agent akan merangkum, bukan menyalin mentah.`);
@@ -330,7 +330,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
             print('info', `Dua search selesai — baca sumber terbaik: ${chosen}`);
             const page = await fetchWebPage(chosen);
             if (page.ok) {
-              history.push({ action: 'web_fetch', url: page.url, summary: page.text.slice(0, 30000) });
+              history.push({ action: 'web_fetch', url: page.url, summary: focusWebText(page.text, instruction).slice(0, 30000) });
               actionIndicator('web_fetch', chosen);
               printBlock(page.text.slice(0, 800), 2);
               print('info', `Isi halaman disimpan ke history (${page.text.length} karakter) — agent akan merangkum, bukan menyalin mentah.`);
@@ -366,7 +366,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           printBlock(summary.slice(0, 800), 2);
           print('info', `Isi halaman disimpan ke history (${summary.length} karakter) — agent akan merangkum, bukan menyalin mentah.`);
           const fetchVerification = verifyAction({ action: 'web_fetch', text: summary });
-          history.push({ action: 'web_fetch', url: page.url, summary: summary.slice(0, 30000), verified: fetchVerification.ok, error: fetchVerification.ok ? undefined : fetchVerification.reason });
+          history.push({ action: 'web_fetch', url: page.url, summary: focusWebText(summary, instruction).slice(0, 30000), verified: fetchVerification.ok, error: fetchVerification.ok ? undefined : fetchVerification.reason });
           if (threadId) {
             logStep({ threadId, role: 'assistant', content: `Fetched: ${page.url}`, actionType: 'web_fetch', detail: { url: page.url, status: page.status, chars: summary.length }, reasoning: step.reasoning });
           }
