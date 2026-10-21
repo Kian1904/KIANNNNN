@@ -844,7 +844,9 @@ URL: https://contoh resmi.example/data
 ```
 
 History merender isi halaman dengan strategi head + tail supaya navigasi panjang
-di awal tidak menutupi data cuaca/harga di bagian bawah.
+di awal tidak menutupi data cuaca/harga di bagian bawah. Terminal hanya menampilkan
+preview maksimal 800 karakter; isi lengkap tetap disimpan di history untuk reasoning,
+agar user tidak dibanjiri copy-paste halaman mentah.
 
 ### Aturan riset yang fleksibel
 

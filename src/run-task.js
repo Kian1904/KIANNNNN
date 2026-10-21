@@ -282,7 +282,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           if (page.ok) {
             history.push({ action: 'web_fetch', url: page.url, summary: page.text.slice(0, 30000) });
             actionIndicator('web_fetch', chosen);
-            printBlock(page.text.slice(0, 6000), 2);
+            printBlock(page.text.slice(0, 800), 2);
+            print('info', `Isi halaman disimpan ke history (${page.text.length} karakter) — agent akan merangkum, bukan menyalin mentah.`);
           } else {
             history.push({ action: 'web_fetch', url: chosen, summary: `ERROR: ${page.error}` });
           }
@@ -331,7 +332,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
             if (page.ok) {
               history.push({ action: 'web_fetch', url: page.url, summary: page.text.slice(0, 30000) });
               actionIndicator('web_fetch', chosen);
-              printBlock(page.text.slice(0, 6000), 2);
+              printBlock(page.text.slice(0, 800), 2);
+              print('info', `Isi halaman disimpan ke history (${page.text.length} karakter) — agent akan merangkum, bukan menyalin mentah.`);
               fetched = true;
               break;
             }
@@ -361,7 +363,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           history.push({ action: 'web_fetch', url: step.url, summary: `ERROR: ${page.error}${page.status ? ` HTTP ${page.status}` : ''}`, verified: false, error: page.error });
         } else {
           const summary = page.text || '(halaman kosong)';
-          printBlock(summary.slice(0, 6000), 2);
+          printBlock(summary.slice(0, 800), 2);
+          print('info', `Isi halaman disimpan ke history (${summary.length} karakter) — agent akan merangkum, bukan menyalin mentah.`);
           const fetchVerification = verifyAction({ action: 'web_fetch', text: summary });
           history.push({ action: 'web_fetch', url: page.url, summary: summary.slice(0, 30000), verified: fetchVerification.ok, error: fetchVerification.ok ? undefined : fetchVerification.reason });
           if (threadId) {
