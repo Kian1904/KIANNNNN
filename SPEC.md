@@ -689,7 +689,7 @@ bahwa data tidak tersedia. M34 menambah `focusWebText()`:
 - menyimpan teks fokus bounded untuk reasoning;
 - preview terminal tetap pendek.
 
-Test `tests/test-web-focus.mjs`: **5 pass**. Suite: **585 pass, 0 fail, 32 file**.
+Test `tests/test-web-focus.mjs`: **8 pass**. JSON weather juga diflatten menjadi evidence (`temp_C`, `humidity`, `weatherDesc`) agar fallback summary tidak kosong. Suite: **588 pass, 0 fail, 32 file**.
 
 ## M33 — Tampilkan Preview Riset, Simpan Konteks Lengkap (2026-10-21)
 

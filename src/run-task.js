@@ -9,7 +9,7 @@ import { runCommand } from './bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js';
 import { callTool } from '../mcp/client.js';
 import { searchWeb } from './search.js';
-import { fetchWebPage, focusWebText } from './web-fetch.js';
+import { fetchWebPage, focusWebText, buildWebEvidenceSummary } from './web-fetch.js';
 import { verifyAction, verifyCompletion } from './verifier.js';
 import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
@@ -289,7 +289,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           }
         }
         print('info', 'Batas 2x web_search tercapai — memaksa rangkuman dari data yang ada.');
-        const forcedInstruction = `${instruction}\n\n[SISTEM: Kamu sudah mencapai batas maksimal pencarian web. WAJIB ACTION: done sekarang. Tulis SUMMARY dari hasil search/fetch yang sudah ada di history dengan kata-katamu sendiri. DILARANG ACTION: web_search atau ACTION: mcp_call apapun di langkah ini.]`;
+        const forcedInstruction = `${instruction}\n\n[SISTEM: Kamu sudah mencapai batas maksimal pencarian web. WAJIB ACTION: done sekarang. Tulis SUMMARY singkat dari evidence data yang sudah ada. Fokus pada angka, kondisi, lokasi, waktu, dan fakta yang menjawab pertanyaan user. Jangan menyalin menu/navigasi/URL mentah. Evidence terfokus:\n${buildWebEvidenceSummary(history)}\nDILARANG ACTION: web_search atau ACTION: mcp_call apapun di langkah ini.]`;
         const fr = await planStepWithRetry(askWithFallback, { instruction: forcedInstruction, fileSnapshot, history, agentMd, recentMemory, availableTools: toolsForAgent, webSearchCount, systemPromptOverride }, { maxAttempts: 2 });
         const forcedStep = fr.ok ? fr.step : { action: 'done', summary: '', reasoning: 'paksa selesai (model gak kooperatif)' };
         if (forcedStep.action === 'done') {

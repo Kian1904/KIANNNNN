@@ -48,13 +48,34 @@ function htmlToText(input) {
 
 // Buang navigasi umum, pertahankan blok yang memuat istilah query/data.
 export function focusWebText(text, query = '') {
-  const lines = String(text).split('\n').map(x => x.trim()).filter(Boolean);
+  const raw = String(text);
+  let lines;
+  try {
+    const parsed = JSON.parse(raw);
+    const flat = [];
+    const walk = (value, key = '') => {
+      if (Array.isArray(value)) return value.forEach(v => walk(v, key));
+      if (value && typeof value === 'object') return Object.entries(value).forEach(([k, v]) => walk(v, k));
+      if (value !== null && value !== undefined) flat.push(`${key}: ${value}`);
+    };
+    walk(parsed);
+    lines = flat;
+  } catch {
+    lines = raw.split('\n').map(x => x.trim()).filter(Boolean);
+  }
   const q = String(query).toLowerCase().split(/\s+/).filter(x => x.length > 2);
   const noise = /^(tentang bmkg|profil$|struktur organisasi|pejabat eselon|balai besar|publikasi$|siaran pers|berita utama|berita kegiatan|berita daerah|artikel$|pengumuman|kegiatan internasional|pelayanan publik|ppid bmkg|pelayanan satu pintu|layanan pengadaan|e-pengaduan|pengaduan masyarakat|laporan harta|media sosial|footer|badan meteorologi,|196 contact)/i;
-  const data = /jakarta|suhu|kelembapan|hujan|cerah|berawan|kabur|angin|°c|%|prakiraan|cuaca/i;
+  const data = /jakarta|suhu|temp|feelslike|humidity|kelembapan|hujan|cerah|berawan|kabut|smoky haze|angin|wind|°c|%|prakiraan|cuaca|weather|pressure|visibility/i;
   const kept = lines.filter(line => !noise.test(line) && (data.test(line) || q.some(term => line.toLowerCase().includes(term))));
-  const result = kept.length >= 3 ? kept : lines.filter(line => !noise.test(line));
+  const result = kept.length >= 1 ? kept : lines.filter(line => !noise.test(line));
   return result.join('\n').slice(0, 12000);
+}
+
+export function buildWebEvidenceSummary(history = []) {
+  return history.filter(h => h.action === 'web_fetch').map(h => {
+    const focused = focusWebText(h.summary || '', h.query || '');
+    return `${h.url}:\n${focused.slice(0, 900)}`;
+  }).join('\n\n').slice(0, 3000);
 }
 
 async function readLimited(res, maxBytes) {
