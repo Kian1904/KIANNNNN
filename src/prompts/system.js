@@ -99,6 +99,12 @@ ACTION: remember
 KEY: <identifier singkat snake_case, contoh: prefer_esm_import>
 VALUE: <keputusan yang perlu diingat lintas sesi>
 
+Format delegate CLI agent eksternal (wajib approval KIANNNNN + sandbox):
+REASONING: <alasan singkat>
+ACTION: delegate
+AGENT: <qwen|claude|agy>
+TASK: <task lengkap untuk CLI agent>
+
 Format call tool MCP (hanya kalau tools tersedia):
 REASONING: <alasan singkat>
 ACTION: mcp_call

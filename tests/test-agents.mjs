@@ -63,8 +63,8 @@ console.log('\n[6] Batas aksi diketahui parser');
 // jumlahnya, tapi: setiap aksi yang dibolehkan ke agent HARUS dikenali parser.
 // Kalau ada yang kelewat, agent bakal "boleh" melakukan sesuatu yang parse-nya
 // ditolak diam-diam.
-check('KNOWN_ACTIONS: 15 aksi (8 lama + web_fetch + write/append/mkdir + delete/rename/move)',
-  KNOWN_ACTIONS.length === 15, `dapat ${KNOWN_ACTIONS.length}`);
+check('KNOWN_ACTIONS: 16 aksi + delegate',
+  KNOWN_ACTIONS.length === 16, `dapat ${KNOWN_ACTIONS.length}`);
 check('aksi destruktif dikenal parser',
   ['delete', 'rename', 'move'].every(a => KNOWN_ACTIONS.includes(a)));
 check('setiap aksi agent subset KNOWN_ACTIONS',

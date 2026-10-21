@@ -678,6 +678,42 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
 
+## M43 — Delegated CLI Agents (Qwen / Claude / Antigravity) (2026-10-22)
+
+KIANNNNN sekarang dapat mendelegasikan subtask terkontrol ke CLI agent yang
+sudah terpasang di environment: `qwen`, `claude`, atau `agy` (Antigravity).
+
+`src/delegate-cli.js` menyediakan:
+
+- deteksi executable via `command -v`;
+- command builder per CLI dengan `-p`, output JSON, sandbox, model/effort,
+  `--add-dir`, dan opsi schema/mode yang didukung;
+- parser output JSON/text ke `{ok, summary, data}`;
+- timeout 120 detik, cwd eksplisit, max buffer 10 MB;
+- error non-zero/timeout fail-closed;
+- injected `spawnFn` untuk test tanpa menjalankan agent eksternal.
+
+Action baru:
+
+```text
+REASONING: <alasan>
+ACTION: delegate
+AGENT: <qwen|claude|agy>
+TASK: <task lengkap>
+```
+
+Runner tetap memegang approval KIANNNNN sebelum subprocess dijalankan. Agent
+eksternal tidak dipercaya sebagai bukti final: hasil masuk history dengan
+`verified: true` hanya sebagai bukti bahwa subprocess selesai menghasilkan
+output; pekerjaan file tetap perlu dibuktikan lewat verifier KIANNNNN.
+Agent yang tidak terdaftar ditolak, dan budget provider-call berlaku.
+
+Test M43:
+
+- `test-delegate-cli.mjs`: **21 pass**;
+- `test-delegate-parser.mjs`: **5 pass**;
+- full suite: **645 pass, 0 fail, 37 file**.
+
 ## M37–M41 — Research Engine, Structured Evidence, Circuit Breaker, Budget, Compaction (2026-10-21)
 
 Masalah sebelumnya: rangkuman riset sepenuhnya bergantung pada satu panggilan LLM,

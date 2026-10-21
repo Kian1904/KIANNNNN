@@ -17,6 +17,7 @@ import { inspectTarget, describeTarget, rejectReason, rejectWriteReason, applyFi
 import { composeAgentPrompt, filterToolsForAgent } from './agents.js';
 import { preflightEnvironment } from './environment.js';
 import { createTaskBudget } from './task-budget.js';
+import { delegateTask } from './delegate-cli.js';
 import { packetFromHistory, buildEvidenceFallback } from './research-engine.js';
 import { compactResearchContext } from './research-context.js';
 
@@ -242,6 +243,43 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       history.push({ action: 'remember', key: step.key, value: step.value });
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `Remembered: ${step.key} = ${step.value}`, actionType: 'remember', reasoning: step.reasoning });
+      }
+      continue;
+    }
+
+    // --- DELEGATE CLI AGENT ---
+    if (step.action === 'delegate') {
+      actionIndicator('delegate', `${step.agent}: ${step.task}`);
+      if (!['qwen', 'claude', 'agy'].includes(step.agent)) {
+        const error = `CLI agent tidak diizinkan: ${step.agent}`;
+        print('blocked', error);
+        history.push({ action: 'delegate', agent: step.agent, task: step.task, verified: false, error });
+        continue;
+      }
+      const approval = await askApproval(`delegate ke ${step.agent}`);
+      if (!approval.approved) {
+        const error = 'delegasi dibatalkan oleh user';
+        history.push({ action: 'delegate', agent: step.agent, task: step.task, approved: false, verified: false, error });
+        return `Delegasi dibatalkan: ${step.agent}.`;
+      }
+      if (!budget.consume('providerCall')) {
+        const error = 'budget provider call habis';
+        print('blocked', error);
+        history.push({ action: 'delegate', agent: step.agent, task: step.task, approved: true, verified: false, error });
+        continue;
+      }
+      const result = await delegateTask(step.agent, step.task, {
+        cwd: process.cwd(),
+        sandbox: true,
+        outputFormat: 'json',
+        timeoutMs: 120_000,
+      });
+      if (result.ok) {
+        print('delegate_ok', `${step.agent}: ${result.summary.slice(0, 2000)}`);
+        history.push({ action: 'delegate', agent: step.agent, task: step.task, summary: result.summary, approved: true, verified: true });
+      } else {
+        print('delegate_err', `${step.agent}: ${result.error || 'gagal'}`);
+        history.push({ action: 'delegate', agent: step.agent, task: step.task, approved: true, verified: false, error: result.error || 'gagal' });
       }
       continue;
     }

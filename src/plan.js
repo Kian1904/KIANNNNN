@@ -163,7 +163,7 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
   raw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
   const reasoningMatch = raw.match(/REASONING:\s*(.*)/);
   const reasoning = reasoningMatch ? reasoningMatch[1].trim() : '';
-  const actionMatch = raw.match(/ACTION:\s*(edit|write|append|mkdir|bash|done|read|list_dir|remember|mcp_call|web_search|web_fetch|chat|delete|rename|move)/);
+  const actionMatch = raw.match(/ACTION:\s*(edit|write|append|mkdir|bash|done|read|list_dir|remember|mcp_call|web_search|web_fetch|chat|delete|rename|move|delegate)/);
        dbg('raw LLM response:', raw.slice(0, 500) + (raw.length > 500 ? '...[truncated]' : ''));
 
   if (!actionMatch) {
@@ -251,6 +251,14 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
   if (action === 'chat') {
     const replyMatch = raw.match(/REPLY:\s*([\s\S]*)/);
     return { action, reasoning, reply: replyMatch ? replyMatch[1].trim() : '' };
+  }
+
+  if (action === 'delegate') {
+    const agentMatch = raw.match(/AGENT:\s*(.*)/);
+    const taskMatch = raw.match(/TASK:\s*([\s\S]*?)(?:\n[A-Z_]+:|$)/);
+    if (!agentMatch || !agentMatch[1].trim()) throw stepError('ACTION delegate tapi tidak ada AGENT (qwen|claude|agy).\n', raw);
+    if (!taskMatch || !taskMatch[1].trim()) throw stepError('ACTION delegate tapi tidak ada TASK.\n', raw);
+    return { action, reasoning, agent: agentMatch[1].trim(), task: taskMatch[1].trim() };
   }
 
   if (action === 'write' || action === 'append') {
