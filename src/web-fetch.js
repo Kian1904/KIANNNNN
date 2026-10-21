@@ -55,7 +55,13 @@ export function focusWebText(text, query = '') {
     const flat = [];
     const walk = (value, key = '') => {
       if (Array.isArray(value)) return value.forEach(v => walk(v, key));
-      if (value && typeof value === 'object') return Object.entries(value).forEach(([k, v]) => walk(v, k));
+      if (value && typeof value === 'object') {
+        // Wrapper {value: "..."} (mis. weatherDesc:[{value:"..."}]) → pakai nama
+        // parent key, biar hasilnya 'weatherDesc: Smoky haze' — bukan 'value: ...'
+        // polos yang gak kebaca extractFacts.
+        if (typeof value.value === 'string') return flat.push(`${key}: ${value.value}`);
+        return Object.entries(value).forEach(([k, v]) => walk(v, k));
+      }
       if (value !== null && value !== undefined) flat.push(`${key}: ${value}`);
     };
     walk(parsed);

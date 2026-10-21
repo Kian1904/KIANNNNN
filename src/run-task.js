@@ -9,13 +9,16 @@ import { runCommand } from './bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js';
 import { callTool } from '../mcp/client.js';
 import { searchWeb } from './search.js';
-import { fetchWebPage, focusWebText, buildWebEvidenceSummary, buildResearchFallback } from './web-fetch.js'
+import { fetchWebPage, focusWebText } from './web-fetch.js'
 import { verifyAction, verifyCompletion } from './verifier.js';
 import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
 import { inspectTarget, describeTarget, rejectReason, rejectWriteReason, applyFileOp, applySafeFileOp } from './file-ops.js';
 import { composeAgentPrompt, filterToolsForAgent } from './agents.js';
 import { preflightEnvironment } from './environment.js';
+import { createTaskBudget } from './task-budget.js';
+import { packetFromHistory, buildEvidenceFallback } from './research-engine.js';
+import { compactResearchContext } from './research-context.js';
 
 // M12 — Extended MAX_LOOPS
 const MAX_LOOPS = parseInt(process.env.MAX_LOOPS) || 25;
@@ -56,6 +59,14 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     }
   }
   const maxLoops = (agentConfig && agentConfig.maxLoops) || MAX_LOOPS;
+  // M40: budget per task — search/fetch/step dibatasi deterministik, bukan
+  // nunggu provider error baru sadar.
+  const budget = createTaskBudget({
+    maxSteps: maxLoops,
+    maxSearches: parseInt(process.env.K_SROUTER_MAX_SEARCH) || 2,
+    maxFetches: parseInt(process.env.K_SROUTER_MAX_FETCH) || 3,
+    maxProviderCalls: parseInt(process.env.MAX_LOOPS) ? Math.min(MAX_LOOPS * 3, 30) : 15,
+  });
   let systemPromptOverride = agentConfig ? composeAgentPrompt(agentConfig, agentMd) : null;
   const toolsForAgent = agentConfig
     ? filterToolsForAgent(availableTools, agentConfig.mcpTools)
@@ -92,7 +103,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       printBlock(String(sr.lastError || '').split('\n')[0], 2);
       const hasEvidence = history.some(h => h.action === 'web_search' || h.action === 'web_fetch');
       const fallbackSummary = hasEvidence
-        ? buildResearchFallback(instruction, history)
+        ? buildEvidenceFallback(instruction, history)
         : history.length > 0
           ? `Task berhenti: model tidak balas format yang benar.\n\nYang sudah dikerjakan (${history.length} langkah):\n${buildHistoryText(history)}`
           : 'Task gagal: model tidak balas format yang benar sejak langkah pertama.';
@@ -273,8 +284,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     if (step.action === 'web_search') {
       actionIndicator('web_search', step.query);
       webSearchCount++;
-      if (webSearchCount > 2) {
-        // Kalau model tetap memilih search setelah limit, pakai URL resmi yang
+      if (!budget.consume('search')) {
+        // Kalau model tetap memilih search setelah budget habis, pakai URL resmi yang
         // sudah ditemukan untuk fetch sekali—jangan buang hasil riset cuma karena
         // model mengulang ACTION web_search.
         const candidates = history
@@ -282,7 +293,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           .flatMap(h => String(h.summary || '').match(/https?:\/\/[^\s)]+/g) || []);
         const official = candidates.find(u => /bmkg\.go\.id|\.gov\.|\.go\.id\//i.test(u));
         const chosen = official || candidates[0];
-        if (chosen) {
+        if (chosen && budget.consume('fetch')) {
           print('info', `Batas search tercapai — ambil isi sumber: ${chosen}`);
           const page = await fetchWebPage(chosen);
           if (page.ok) {
@@ -294,22 +305,29 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
             history.push({ action: 'web_fetch', url: chosen, summary: `ERROR: ${page.error}` });
           }
         }
-        print('info', 'Batas 2x web_search tercapai — memaksa rangkuman dari data yang ada.');
-        const forcedInstruction = `${instruction}\n\n[SISTEM: Kamu sudah mencapai batas maksimal pencarian web. WAJIB ACTION: done sekarang. Tulis SUMMARY singkat dari evidence data yang sudah ada. Fokus pada angka, kondisi, lokasi, waktu, dan fakta yang menjawab pertanyaan user. Jangan menyalin menu/navigasi/URL mentah. Evidence terfokus:\n${buildWebEvidenceSummary(history)}\nDILARANG ACTION: web_search atau ACTION: mcp_call apapun di langkah ini.]`;
+        print('info', `Budget search habis (${budget.snapshot().limits.searches}x) — memaksa rangkuman dari data yang ada.`);
+        const researchPacket = packetFromHistory(history, instruction);
+        const compactEvidence = compactResearchContext(researchPacket, { maxChars: 1500 });
+        const forcedInstruction = `${instruction}\n\n[SISTEM: Kamu sudah mencapai batas pencarian web. WAJIB ACTION: done sekarang. Tulis SUMMARY singkat dari evidence data yang sudah ada. Fokus pada angka, kondisi, lokasi, waktu, dan fakta yang menjawab pertanyaan user. Jangan menyalin menu/navigasi/URL mentah. Evidence terstruktur:\n${compactEvidence}\nDILARANG ACTION: web_search atau ACTION: mcp_call apapun di langkah ini.]`;
         const fr = await planStepWithRetry(askWithFallback, { instruction: forcedInstruction, fileSnapshot, history, agentMd, recentMemory, availableTools: toolsForAgent, webSearchCount, systemPromptOverride }, { maxAttempts: 2 });
         const forcedStep = fr.ok ? fr.step : { action: 'done', summary: '', reasoning: 'paksa selesai (model gak kooperatif)' };
-        if (forcedStep.action === 'done') {
+        // Model gak kooperatif / summary kosong → jawab dari evidence terstruktur,
+        // BUKAN step.summary (step di sini web_search, summary-nya undefined).
+        const evidenceSummary = buildEvidenceFallback(instruction, history);
+        if (forcedStep.action === 'done' && forcedStep.summary && forcedStep.summary.trim()) {
           print('done', forcedStep.summary);
           if (threadId) {
             logStep({ threadId, role: 'assistant', content: forcedStep.summary, actionType: 'done', reasoning: forcedStep.reasoning });
           }
-        } else {
-          const searchSummaries = history.filter(h => h.action === 'web_search').map(h => h.summary).join('\n\n---\n\n');
-          const forcedSummary = `Task selesai (dipaksa, LLM tidak patuh instruksi done). Data yang terkumpul:\n\n${searchSummaries.slice(0, 1500)}`;
-          print('done', forcedSummary);
+          blank();
+          return forcedStep.summary;
+        }
+        print('done', evidenceSummary);
+        if (threadId) {
+          logStep({ threadId, role: 'assistant', content: evidenceSummary, actionType: 'done', reasoning: forcedStep.reasoning || 'forced-evidence-fallback' });
         }
         blank();
-        return typeof forcedSummary !== 'undefined' ? forcedSummary : step.summary;
+        return evidenceSummary;
       }
 
       print('web_search', step.query);
@@ -325,7 +343,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         // halaman, ambil satu sumber resmi terbaik. Model tetap boleh langsung
         // done pada kasus snippet yang cukup; fetch ini hanya memastikan riset
         // data-spesifik (cuaca/harga/status) gak berhenti di daftar URL.
-        if (webSearchCount >= 2 && !history.some(h => h.action === 'web_fetch')) {
+        if (webSearchCount >= 2 && !history.some(h => h.action === 'web_fetch') && budget.consume('fetch')) {
           const candidates = history
             .filter(h => h.action === 'web_search')
             .flatMap(h => String(h.summary || '').match(/https?:\/\/[^\s)]+/g) || []);
@@ -361,6 +379,11 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
     // --- WEB_FETCH ---
     if (step.action === 'web_fetch') {
+      if (!budget.consume('fetch')) {
+        print('blocked', `Budget fetch habis (${budget.snapshot().limits.fetches}x) — pakai data yang sudah ada di history.`);
+        history.push({ action: 'user_condition', condition: `Budget web_fetch habis. Jangan fetch lagi; rangkum evidence yang sudah ada.` });
+        continue;
+      }
       actionIndicator('web_fetch', step.url);
       try {
         const page = await fetchWebPage(step.url);

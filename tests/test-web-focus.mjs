@@ -13,6 +13,7 @@ const json = JSON.stringify({ current_condition: [{ temp_C: '32', humidity: '52'
 const jsonFocus = focusWebText(json, 'cuaca Jakarta sekarang');
 check('JSON weather mempertahankan suhu', /32/.test(jsonFocus));
 check('JSON weather mempertahankan kondisi', /Smoky haze/i.test(jsonFocus));
+check('JSON weather pakai label parent key (weatherDesc)', /weatherDesc/i.test(jsonFocus));
 const evidence = buildWebEvidenceSummary([{ action: 'web_fetch', url: 'https://weather.test', summary: jsonFocus }]);
 check('fallback evidence bukan copy-paste panjang', evidence.length < 1000 && /32|Smoky haze/.test(evidence));
 console.log(`\n=== HASIL WEB-FOCUS: ${pass} pass, ${fail} fail ===`);

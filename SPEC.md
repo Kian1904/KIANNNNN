@@ -463,7 +463,7 @@ Cara test manual di Telegram (butuh `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USE
 
 Yang bisa dikerjakan berikutnya:
 
-1. ~~**Auto-routing + review + research + verification + environments + focused research:**~~ ✅ SELESAI — M19–M34 mencakup review, verification, parallel wave, environment preflight, runtime adapters, dan fokus data web. Baca seksi M19–M34.
+1. ~~**Auto-routing + review + research + verification + environments + focused research:**~~ ✅ SELESAI — M19–M41 mencakup review, verification, parallel wave, environment preflight, runtime adapters, research engine + structured evidence, circuit breaker, task budget, dan compact context. Baca seksi M19–M41.
 
 2. ~~**Aksi destruktif lain:**~~ ✅ SELESAI (`M21`) — `delete`, `rename`, `move`
    ada di `src/file-ops.js`. Termasuk fix `/rollback` yang dulu gak bisa
@@ -677,6 +677,61 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
+
+## M37–M41 — Research Engine, Structured Evidence, Circuit Breaker, Budget, Compaction (2026-10-21)
+
+Masalah sebelumnya: rangkuman riset sepenuhnya bergantung pada satu panggilan LLM,
+provider 429 bikin seluruh jalur mati, dan konteks web mentah memicu rate limit.
+
+### M37 — Research Engine (`src/research-engine.js`)
+- `rankSources()` — prioritas sumber resmi (BMKG/.gov/wttr.in/weather.com).
+- `runResearchPlan()` — search → ranking → fetch → packet, deterministik,
+  bisa jalan tanpa LLM (dependency di-inject untuk test).
+- `packetFromHistory()` — history `web_fetch` sukses → packet (entry error di-skip).
+
+### M38 — Structured Evidence
+- `buildEvidencePacket()` — `{topic, fetchedAt, facts[], sources[], confidence}`.
+- `extractFacts()` — normalisasi kunci (temperature/humidity/condition/wind_speed/
+  pressure/visibility) dengan provenance per fakta (URL sumber).
+- `renderPacket()` — teks ringkas siap-prompt berisi fakta + sumber.
+- `buildEvidenceFallback()` — jawaban riset dari fakta terstruktur; kalau gak ada
+  fakta, jatuh ke `buildResearchFallback` lama.
+
+### M39 — Provider Health / Circuit Breaker (`src/provider-health.js`)
+- `raceProviders` mengecek `providerHealth.isAvailable(key)` — provider yang
+  kena 429/rate-limit di-cooldown 60 detik, TIDAK dipanggil ulang.
+- Error match `429|rate limit|too many requests|retry-after` → `recordFailure`
+  (dengan parsing `retry-after`); sukses → `recordSuccess` (tutup circuit).
+- Snapshot state TIDAK pernah memuat API key.
+
+### M40 — Task Budget (`src/task-budget.js`)
+- Per task: `maxSteps`, `maxSearches` (default 2, `K_SROUTER_MAX_SEARCH`),
+  `maxFetches` (default 3, `K_SROUTER_MAX_FETCH`), `maxProviderCalls`.
+- `budget.consume('search'|'fetch')` di semua jalur web — termasuk safety net
+  auto-fetch. Habis → paksa rangkum dari evidence, bukan loop nunggu error.
+- Alias tunggal/jamak diterima (`step`/`steps`, dst), fail-closed.
+
+### M41 — Compact Context (`src/research-context.js`)
+- `compactResearchContext(packet, {maxChars})` — fakta + sumber dalam bentuk
+  pendek untuk forcedInstruction, menggantikan evidence mentah 3000+ char.
+- `focusWebText` JSON walk: wrapper `{value: "..."}` (weatherDesc) kini dirender
+  dengan nama parent key → `weatherDesc: Smoky haze`, bukan `value: ...` polos.
+
+### Perbaikan bug terkait
+- Jalur forced-done sebelumnya bisa `return step.summary` = `undefined` (step
+  masih `web_search`); kini selalu `forcedStep.summary` atau evidence fallback.
+- Forced-summary fallback memakai `buildEvidenceFallback`, bukan
+  `searchSummaries` mentah.
+
+### Verifikasi M37–M41
+- `tests/test-research-core.mjs`: **20 pass** (engine, packet, health, budget,
+  compaction, glue).
+- `tests/test-provider-health-wiring.mjs`: **5 pass** (cascade + circuit).
+- `tests/test-web-focus.mjs`: **9 pass** (parent-key label).
+- **Live test tanpa LLM**: fetch `wttr.in/Jakarta` nyata →
+  `temperature: 38 C, humidity: 43 %, condition: Smoky haze, wind_speed: 22 km/h`,
+  sumber tercantum.
+- Suite: **619 pass, 0 fail, 35 file**.
 
 ## M36 — Tangan Riset Sendiri: Jawaban Gak Boleh Mati Gara-Gara LLM (2026-10-21)
 

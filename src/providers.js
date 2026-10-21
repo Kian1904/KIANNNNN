@@ -1,6 +1,11 @@
 // src/providers.js — Dynamic multi-provider cascade reading from settings.json
 
 import { loadProviders } from './providers-registry.js';
+import { createProviderHealth } from './provider-health.js';
+
+// M39: circuit breaker per provider. 429/rate-limit = cooldown, jangan dipanggil
+// berulang-ulang sampai semua provider ikut tenggelam.
+export const providerHealth = createProviderHealth({ cooldownMs: 60000 });
 
 // ── Adapter: OpenAI-compatible provider ──────────────────────────────────────
 // onToken: opsional. Kalau dikasih, teks di-stream ke caller sambil tetep
@@ -184,12 +189,25 @@ export const PROVIDER_NAMES = loadProviders().map(p => ({
 export async function raceProviders(providerList, systemPrompt, userPrompt, onToken) {
   const errors = [];
   for (const p of providerList) {
+    if (!providerHealth.isAvailable(p.key)) {
+      errors.push(`${p.name}: cooldown aktif (rate limit sebelumnya)`);
+      continue;
+    }
     try {
       const result = await p.fn(systemPrompt, userPrompt, onToken);
+      providerHealth.recordSuccess(p.key);
       fallbackState.lastProvider = p.name;
       return result;
     } catch (err) {
       errors.push(`${p.name}: ${err.message.slice(0, 150)}`);
+      if (/429|rate limit|too many requests|retry-after/i.test(err.message)) {
+        const retryAfterMatch = err.message.match(/retry-after[^\d]*(\d+)/i);
+        providerHealth.recordFailure(p.key, {
+          status: 429,
+          retryAfter: retryAfterMatch ? Number(retryAfterMatch[1]) : 0,
+        });
+        console.log(`[CIRCUIT] ${p.name} rate-limited (429) — cooldown 60 detik.`);
+      }
       console.log(`[FALLBACK] ${p.name} gagal (${err.message.slice(0, 200)}) — coba provider berikutnya...`);
     }
   }
