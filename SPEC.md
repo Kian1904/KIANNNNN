@@ -463,9 +463,10 @@ Cara test manual di Telegram (butuh `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USE
 
 Yang bisa dikerjakan berikutnya:
 
-1. ~~**Auto-routing + review + web research + verification:**~~ ✅ SELESAI — heuristik
-   (`M19/M20`), preview/approve/replan/cancel (`M22`), `web_fetch` (`M23`), dan
-   post-action verification (`M24`). Baca seksi M19, M20, M22, M23, dan M24.
+1. ~~**Auto-routing + review + research + verification:**~~ ✅ SELESAI — heuristik
+   (`M19/M20`), preview/approve/replan/cancel (`M22`), `web_fetch` + hardening
+   (`M23/M26`), post-action verification (`M24`), dan final squad evidence gate
+   (`M27`). Baca seksi M19, M20, M22–M27.
 
 2. ~~**Aksi destruktif lain:**~~ ✅ SELESAI (`M21`) — `delete`, `rename`, `move`
    ada di `src/file-ops.js`. Termasuk fix `/rollback` yang dulu gak bisa
@@ -679,6 +680,53 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
+
+## M27 — Final Squad Evidence Gate (2026-10-21)
+
+Final squad result sekarang tidak otomatis dianggap sukses hanya karena semua
+worker mengembalikan string. `src/squad-review.js` menolak ringkasan final kalau:
+
+- hasil kosong;
+- ringkasan final kosong;
+- worker punya `verified:false`;
+- worker tidak membawa `evidence`.
+
+`executePlan()` menandai hasil worker dengan `verified`, `evidence`, dan `error`.
+Worker yang crash tetap dikarantina agar task lain bisa lanjut, tetapi seluruh
+squad dilaporkan `ok:false` sehingga tidak ada klaim sukses palsu.
+
+## M26 — Web Fetch Hardening (2026-10-21)
+
+`src/web-fetch.js` sekarang:
+
+- resolve hostname dan menolak DNS yang mengarah ke loopback/private/link-local;
+- mengikuti redirect secara manual;
+- memvalidasi setiap target redirect;
+- membatasi jumlah redirect;
+- tidak mengirim cookie/credential;
+- tetap mempertahankan timeout, size limit, dan content-type guard M23.
+
+## M25 — File Actions: write / append / mkdir (2026-10-21)
+
+`src/file-ops.js` menjadi satu gate untuk aksi file baru:
+
+- `write` hanya membuat file baru dan menolak overwrite;
+- `append` hanya menambah isi file yang sudah ada;
+- `mkdir` membuat direktori baru;
+- path sensitif tetap diblokir;
+- parent directory boleh dibuat otomatis;
+- hasil dibaca/dicek ulang sebelum masuk history sebagai `verified:true`.
+
+Parser dan prompt mendukung tiga format baru. Coder mendapat whitelist ketiganya,
+sementara researcher tetap read-only. Semua aksi baru punya preview dan approval
+sebelum eksekusi.
+
+### Verifikasi M25–M27
+
+- file actions: **8 pass**;
+- web hardening: **3 pass**;
+- squad evidence review: **5 pass**;
+- suite: **557 pass, 0 fail, 28 file**.
 
 ## M24 — Post-Action Verification: Agent Gak Boleh Asal Bilang Done (2026-10-21)
 

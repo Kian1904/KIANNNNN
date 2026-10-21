@@ -14,6 +14,7 @@
 
 import { AGENTS, getAgent } from './agents.js';
 import { runTask } from './run-task.js';
+import { reviewSquadResult } from './squad-review.js';
 import { askWithFallback } from './providers.js';
 
 /** @type {string|null} nama agent aktif; null = generic (perilaku lama persis) */
@@ -424,10 +425,17 @@ export async function executePlan(planResult, ctx, deps = {}) {
       const clean = typeof summary === 'string' && summary.trim()
         ? summary.trim()
         : '(worker tidak memberi ringkasan — kemungkinan habis loop tanpa done)';
+      const failed = clean.startsWith('TASK GAGAL:') || clean.startsWith('(worker tidak memberi');
+      const evidence = failed ? [] : [`worker ${task.role} menghasilkan ringkasan terkontrol`];
       summaryById.set(task.id, clean);
-      results.push({ id: task.id, role: task.role, summary: clean });
+      results.push({ id: task.id, role: task.role, summary: clean, verified: !failed, evidence, error: failed ? clean : undefined });
     }
   }
 
-  return { ok: true, fallback: false, results, finalSummary: aggregateResults(results), problems: [] };
+  const finalSummary = aggregateResults(results);
+  const review = reviewSquadResult({ results, finalSummary });
+  if (!review.ok) {
+    return { ok: false, fallback: false, results, finalSummary, problems: [review.reason] };
+  }
+  return { ok: true, fallback: false, results, finalSummary, problems: [] };
 }

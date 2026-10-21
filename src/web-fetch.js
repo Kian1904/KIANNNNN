@@ -1,7 +1,9 @@
-// M23: fetch halaman web hasil search dengan guard ukuran/protokol.
+// M23/M26: fetch halaman web hasil search dengan guard ukuran/protokol.
 // Tanpa dependency tambahan: HTML dibersihkan cukup untuk konteks LLM.
+import dns from 'dns';
 
 const DEFAULT_TIMEOUT_MS = 12000;
+const DEFAULT_MAX_REDIRECTS = 3;
 const DEFAULT_MAX_BYTES = 600_000;
 const TEXT_TYPES = /^(text\/|application\/(json|xml|xhtml\+xml))/i;
 
@@ -16,6 +18,21 @@ function blockedUrl(raw) {
     return 'blocked_url';
   }
   return null;
+}
+
+function isPrivateIp(ip) {
+  const s = String(ip).toLowerCase();
+  return s === '::1' || s === '0.0.0.0' || /^127\./.test(s) || /^10\./.test(s) ||
+    /^192\.168\./.test(s) || /^169\.254\./.test(s) || /^172\.(1[6-9]|2\d|3[01])\./.test(s) ||
+    /^(fc|fd|fe80:)/i.test(s);
+}
+
+async function resolvePublic(host, resolveFn) {
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(':')) {
+    return isPrivateIp(host) ? { ok: false, error: 'blocked_private_ip' } : { ok: true };
+  }
+  const addresses = await resolveFn(host);
+  return addresses.some(isPrivateIp) ? { ok: false, error: 'blocked_private_ip' } : { ok: true };
 }
 
 function htmlToText(input) {
@@ -64,29 +81,47 @@ async function readLimited(res, maxBytes) {
 
 export async function fetchWebPage(rawUrl, {
   fetchFn = globalThis.fetch,
+  resolveFn = (host) => dns.promises.lookup(host, { all: true }).then(xs => xs.map(x => x.address)),
   timeoutMs = DEFAULT_TIMEOUT_MS,
   maxBytes = DEFAULT_MAX_BYTES,
+  maxRedirects = DEFAULT_MAX_REDIRECTS,
 } = {}) {
-  const reason = blockedUrl(rawUrl);
-  if (reason) return { ok: false, error: reason, url: rawUrl };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetchFn(rawUrl, {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: { 'user-agent': 'K-sRouter-research/1.0', accept: 'text/html, text/plain, application/json;q=0.9, */*;q=0.1' },
-    });
-    const contentType = res.headers.get('content-type') || '';
-    if (!res.ok) return { ok: false, error: 'http_error', status: res.status, url: rawUrl };
-    if (!TEXT_TYPES.test(contentType) && contentType) return { ok: false, error: 'non_text', status: res.status, url: rawUrl, contentType };
-    const body = await readLimited(res, maxBytes);
-    if (body.error) return { ok: false, error: body.error, status: res.status, url: rawUrl };
-    const text = /html/i.test(contentType) || /<html[\s>]/i.test(body.text) ? htmlToText(body.text) : body.text.trim();
-    return { ok: true, url: rawUrl, status: res.status, contentType, text: text.slice(0, 120_000) };
-  } catch (err) {
-    return { ok: false, error: err?.name === 'AbortError' ? 'timeout' : 'fetch_error', message: err?.message || String(err), url: rawUrl };
-  } finally { clearTimeout(timer); }
+  let current = rawUrl;
+  for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount++) {
+    const reason = blockedUrl(current);
+    if (reason) return { ok: false, error: reason, url: current };
+    try {
+      const u = new URL(current);
+      const resolved = await resolvePublic(u.hostname, resolveFn);
+      if (!resolved.ok) return { ok: false, error: resolved.error, url: current };
+    } catch (err) { return { ok: false, error: 'dns_error', message: err.message, url: current }; }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetchFn(current, {
+        signal: controller.signal,
+        redirect: 'manual',
+        headers: { 'user-agent': 'K-sRouter-research/1.0', accept: 'text/html, text/plain, application/json;q=0.9, */*;q=0.1' },
+      });
+      if ([301, 302, 303, 307, 308].includes(res.status)) {
+        const location = res.headers.get('location');
+        if (!location) return { ok: false, error: 'redirect_without_location', url: current };
+        if (redirectCount === maxRedirects) return { ok: false, error: 'too_many_redirects', url: current };
+        current = new URL(location, current).toString();
+        continue;
+      }
+      const contentType = res.headers.get('content-type') || '';
+      if (!res.ok) return { ok: false, error: 'http_error', status: res.status, url: current };
+      if (!TEXT_TYPES.test(contentType) && contentType) return { ok: false, error: 'non_text', status: res.status, url: current, contentType };
+      const body = await readLimited(res, maxBytes);
+      if (body.error) return { ok: false, error: body.error, status: res.status, url: current };
+      const text = /html/i.test(contentType) || /<html[\s>]/i.test(body.text) ? htmlToText(body.text) : body.text.trim();
+      return { ok: true, url: current, status: res.status, contentType, text: text.slice(0, 120_000) };
+    } catch (err) {
+      return { ok: false, error: err?.name === 'AbortError' ? 'timeout' : 'fetch_error', message: err?.message || String(err), url: current };
+    } finally { clearTimeout(timer); }
+  }
+  return { ok: false, error: 'too_many_redirects', url: current };
 }
 
 export { htmlToText };

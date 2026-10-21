@@ -18,7 +18,7 @@ import { ACTION_FORMAT, SYSTEM_PROMPT } from './prompts/system.js';
  */
 
 // Aksi yang dikenal parser di src/plan.js (done selalu boleh, tidak perlu dicatat)
-const KNOWN_ACTIONS = ['edit', 'bash', 'read', 'list_dir', 'remember', 'mcp_call', 'web_search', 'web_fetch', 'chat', 'delete', 'rename', 'move'];
+const KNOWN_ACTIONS = ['edit', 'write', 'append', 'mkdir', 'bash', 'read', 'list_dir', 'remember', 'mcp_call', 'web_search', 'web_fetch', 'chat', 'delete', 'rename', 'move'];
 
 /** @type {Record<string, AgentConfig>} */
 export const AGENTS = {
@@ -45,7 +45,7 @@ Kamu BOLEH: read, list_dir, edit, bash, mcp_call, remember, chat.
 Kamu DILARANG web_search — kalau butuh info eksternal, kerjakan dengan pengetahuanmu atau
 selesaikan bagian yang bisa kamu kerjakan, lalu SUMMARY jelaskan asumsi yang kamu pakai.
 Utamakan edit yang benar dan verifikasi lewat bash sebelum bilang done.`,
-    actions: ['read', 'list_dir', 'edit', 'bash', 'mcp_call', 'chat', 'remember'],
+    actions: ['read', 'list_dir', 'edit', 'write', 'append', 'mkdir', 'bash', 'mcp_call', 'chat', 'remember'],
     mcpTools: null,    // semua MCP tool
     maxLoops: 25,
     search: false,

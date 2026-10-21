@@ -56,7 +56,7 @@ export async function planStepWithRetry(askFn, ctx, { maxAttempts = 3, onRetry }
         systemPromptOverride: [
           ctx.systemPromptOverride || '',
           `\n\n[SISTEM: Balasan sebelumnya GAGAL diparse. MASALAHNYA: ${lastError.split('\n')[0]}`,
-          'Kamu WAJIB balas dengan format yang bener, mulai dengan baris REASONING: lalu ACTION: (satu dari: read, list_dir, edit, delete, rename, move, bash, web_search, web_fetch, mcp_call, remember, chat, done).',
+          'Kamu WAJIB balas dengan format yang bener, mulai dengan baris REASONING: lalu ACTION: (satu dari: read, list_dir, edit, write, append, mkdir, delete, rename, move, bash, web_search, web_fetch, mcp_call, remember, chat, done).',
           'JANGAN balas dengan kalimat pembuka, penjelasan, atau markdown. Langsung formatnya.' + prev + ']',
         ].join(''),
       };
@@ -78,7 +78,7 @@ export function buildHistoryText(history) {
     if (h.action === 'chat') {
       return `Langkah ${i + 1}: CHAT — "${h.reply.slice(0, 80)}${h.reply.length > 80 ? '...' : ''}"`;
     }
-    if (h.action === 'edit') {
+    if (h.action === 'edit' || h.action === 'write' || h.action === 'append' || h.action === 'mkdir') {
       return `Langkah ${i + 1}: EDIT ${h.target} — ${h.approved ? 'diterapkan' : 'DITOLAK user'}`;
     }
     if (h.action === 'delete' || h.action === 'rename' || h.action === 'move') {
@@ -163,7 +163,7 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
   raw = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
   const reasoningMatch = raw.match(/REASONING:\s*(.*)/);
   const reasoning = reasoningMatch ? reasoningMatch[1].trim() : '';
-  const actionMatch = raw.match(/ACTION:\s*(edit|bash|done|read|list_dir|remember|mcp_call|web_search|web_fetch|chat|delete|rename|move)/);
+  const actionMatch = raw.match(/ACTION:\s*(edit|write|append|mkdir|bash|done|read|list_dir|remember|mcp_call|web_search|web_fetch|chat|delete|rename|move)/);
        dbg('raw LLM response:', raw.slice(0, 500) + (raw.length > 500 ? '...[truncated]' : ''));
 
   if (!actionMatch) {
@@ -251,6 +251,21 @@ Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
   if (action === 'chat') {
     const replyMatch = raw.match(/REPLY:\s*([\s\S]*)/);
     return { action, reasoning, reply: replyMatch ? replyMatch[1].trim() : '' };
+  }
+
+  if (action === 'write' || action === 'append') {
+    const targetMatch = raw.match(/TARGET:\s*(.*)/);
+    const startIdx = raw.indexOf('===CONTENT_START===');
+    const endIdx = raw.indexOf('===CONTENT_END===');
+    if (!targetMatch || startIdx === -1 || endIdx <= startIdx) throw stepError(`ACTION ${action} tapi format TARGET/CONTENT tidak lengkap.\n`, raw);
+    const content = raw.slice(startIdx + '===CONTENT_START==='.length, endIdx).replace(/^\n/, '').replace(/\n$/, '');
+    return { action, reasoning, target: targetMatch[1].trim(), content };
+  }
+
+  if (action === 'mkdir') {
+    const targetMatch = raw.match(/TARGET:\s*(.*)/);
+    if (!targetMatch) throw stepError('ACTION mkdir tapi tidak ada TARGET.\n', raw);
+    return { action, reasoning, target: targetMatch[1].trim() };
   }
 
   // action === 'edit'

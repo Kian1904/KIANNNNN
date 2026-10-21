@@ -50,13 +50,13 @@ try {
   console.log('\n[2] executePlan handoff dependency');
   const srv = await makeServer([
     JSON.stringify({tasks:[
-      {id:1,role:'researcher',brief:'riset cara kerja X',dependsOn:null},
-      {id:2,role:'coder',brief:'implement X',dependsOn:1},
+      {id:1,role:'researcher',brief:'Riset cara kerja SQLite untuk fitur X',dependsOn:null},
+      {id:2,role:'coder',brief:'Implementasikan fitur X memakai hasil riset task 1',dependsOn:1},
     ]}),
     'REASONING: riset\nACTION: done\nSUMMARY: Hasil riset X: pakai SQLite.',
     'REASONING: kode\nACTION: done\nSUMMARY: Selesai implement X dengan SQLite.',
   ]);
-  fs.writeFileSync(SETTINGS, JSON.stringify([{name:'mock',baseUrl:`http://127.0.0.1:${srv.address().port}/v1`,apiKey:'t',model:'m',active:true}]));
+  fs.writeFileSync(SETTINGS, JSON.stringify([{name:'mock',baseUrl:`http://127.0.0.1:${srv.address().port}/v1`,apiKey:'t',model:'mock-1',active:true}]));
 
   const p = await plan('riset X lalu bikin kodenya', askWithFallback);
   check('plan() ok 2 task', p.ok && p.tasks.length===2, JSON.stringify(p.problems));
@@ -96,7 +96,7 @@ console.log('\n[3] executePlan error isolation (M17)');
       return 'review lolos';
     },
   });
-  check('squad tetap ok walau task1 crash', exec2.ok && exec2.results.length === 2, JSON.stringify(exec2.problems));
+  check('squad menahan final sukses walau task1 crash', !exec2.ok && exec2.results.length === 2, JSON.stringify(exec2.problems));
   check('error task1 dikarantina jadi summary', exec2.results[0].summary.includes('TASK GAGAL') && exec2.results[0].summary.includes('BOOM'));
   check('task2 tetap jalan (dependency terima info error)', ran2 && exec2.results[1].summary === 'review lolos');
   check('finalSummary memuat error + hasil task2', exec2.finalSummary.includes('TASK GAGAL') && exec2.finalSummary.includes('review lolos'));

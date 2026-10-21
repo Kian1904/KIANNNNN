@@ -26,6 +26,27 @@ TARGET: <nama file>
 <isi LENGKAP file setelah diedit>
 ===CONTENT_END===
 
+Format buat file baru (GAGAL kalau target sudah ada):
+REASONING: <alasan singkat>
+ACTION: write
+TARGET: <path file baru>
+===CONTENT_START===
+<isi lengkap file baru>
+===CONTENT_END===
+
+Format tambah isi file (tidak boleh membuat file baru):
+REASONING: <alasan singkat>
+ACTION: append
+TARGET: <path file yang sudah ada>
+===CONTENT_START===
+<teks yang ditambahkan>
+===CONTENT_END===
+
+Format buat direktori kosong:
+REASONING: <alasan singkat>
+ACTION: mkdir
+TARGET: <path direktori baru>
+
 Format jalanin command:
 REASONING: <alasan singkat>
 ACTION: bash

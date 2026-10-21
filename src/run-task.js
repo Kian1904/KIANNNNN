@@ -13,7 +13,7 @@ import { fetchWebPage } from './web-fetch.js';
 import { verifyAction, verifyCompletion } from './verifier.js';
 import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
-import { inspectTarget, describeTarget, rejectReason, applyFileOp } from './file-ops.js';
+import { inspectTarget, describeTarget, rejectReason, rejectWriteReason, applyFileOp, applySafeFileOp } from './file-ops.js';
 import { composeAgentPrompt, filterToolsForAgent } from './agents.js';
 
 // M12 — Extended MAX_LOOPS
@@ -361,6 +361,40 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         history.push({ action: 'web_fetch', url: step.url, summary: `ERROR: ${err.message}` });
       }
       continue;
+    }
+
+    // --- WRITE / APPEND / MKDIR ---
+    if (step.action === 'write' || step.action === 'append' || step.action === 'mkdir') {
+      actionIndicator(step.action, step.target);
+      const rejected = rejectWriteReason(step.target, step.action);
+      if (rejected) {
+        print('blocked', `${step.action} ditolak: ${rejected}`);
+        history.push({ action: step.action, target: step.target, verified: false, error: rejected });
+        continue;
+      }
+      if (step.action === 'write' || step.action === 'append') {
+        print('diff', step.target);
+        const before = fs.existsSync(step.target) ? fs.readFileSync(step.target, 'utf8') : '';
+        printBlock(showDiff(before, step.action === 'append' ? before + step.content : step.content));
+      } else printBlock(`Direktori baru: ${step.target}`);
+      sep();
+      const opApproval = await askApproval(step.action);
+      if (!opApproval.approved) return `${step.action} dibatalkan, task dihentikan.`;
+      try {
+        const oldContent = fs.existsSync(step.target) ? fs.readFileSync(step.target, 'utf8') : '';
+        const content = step.action === 'append' ? oldContent + step.content : step.content;
+        if (step.action !== 'mkdir') saveSnapshot({ filepath: step.target, content: oldContent, isNewFile: !fs.existsSync(step.target) });
+        const result = applySafeFileOp(step.action, step.target, step.content);
+        if (!result.ok) return `${step.action} gagal: ${result.error}`;
+        const actual = step.action === 'mkdir' ? fs.existsSync(step.target) : fs.readFileSync(step.target, 'utf8');
+        const verification = step.action === 'mkdir' ? { ok: fs.statSync(step.target).isDirectory(), reason: 'direktori terbukti ada' } : verifyAction({ action: 'edit', target: step.target, expectedContent: content, actualContent: actual });
+        print(verification.ok ? 'verify_ok' : 'error', verification.reason);
+        history.push({ action: step.action, target: step.target, approved: true, verified: verification.ok, error: verification.ok ? undefined : verification.reason });
+        continue;
+      } catch (err) {
+        history.push({ action: step.action, target: step.target, verified: false, error: err.message });
+        return `${step.action} gagal: ${err.message}`;
+      }
     }
 
     // --- EDIT ---
