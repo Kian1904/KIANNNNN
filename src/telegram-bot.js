@@ -31,6 +31,7 @@ import { loadAgentMd } from './utils/fs.js';
 import { isDangerous } from './approval.js';
 import { MODES, DESTRUCTIVE_ACTIONS, normalizeMode, decide, MODE_DESCRIPTIONS } from './modes.js';
 import { routeTask, describeRouting } from './routing.js';
+import { createApprovalQueue } from './approval-queue.js';
 
 /** Waktu tunggu jawaban approval sebelum otomatis ditolak (ms). */
 export const APPROVAL_TIMEOUT_MS = 120_000;
@@ -124,6 +125,7 @@ export function createTelegramBot({
   let stopped = false;
   /** @type {null|{chatId:number,label:string,forceAsk:boolean,timer:any,resolve:Function}} */
   let pendingApproval = null;
+  const approvalQueue = createApprovalQueue((chatId, label, opts) => askApprovalDirect(chatId, label, opts));
 
   const stats = { tasks: 0, llmCalls: 0, byProvider: {}, byAction: {} };
   const trackProvider = (name) => { stats.llmCalls++; stats.byProvider[name] = (stats.byProvider[name] || 0) + 1; };
@@ -149,9 +151,9 @@ export function createTelegramBot({
     }
   }
 
-  /** Approval ala REPL, tapi nunggu balasan chat (y/s/n/c). */
-  function makeAskApproval(chatId) {
-    return async (label, { forceAsk = false } = {}) => {
+  /** Approval inti per chat, dipanggil serial oleh queue. */
+  function askApprovalDirect(chatId, label, { forceAsk = false } = {}) {
+    return (async () => {
       // MODE GATE — sama persis dengan aturan di REPL (src/modes.js).
       const destructive = forceAsk || DESTRUCTIVE_ACTIONS.has(String(label).toLowerCase());
       const verdict = decide(approvalMode, { action: label, isDestructive: destructive });
@@ -185,7 +187,12 @@ export function createTelegramBot({
         };
         pendingApproval = { chatId, label, forceAsk, timer, resolve: wrapped };
       });
-    };
+    })();
+  }
+
+  /** Approval ala REPL, tapi nunggu balasan chat (y/s/n/c). */
+  function makeAskApproval(chatId) {
+    return (label, opts = {}) => approvalQueue(chatId, label, opts);
   }
 
   /**

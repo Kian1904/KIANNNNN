@@ -463,10 +463,7 @@ Cara test manual di Telegram (butuh `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USE
 
 Yang bisa dikerjakan berikutnya:
 
-1. ~~**Auto-routing + review + research + verification:**~~ ✅ SELESAI — heuristik
-   (`M19/M20`), preview/approve/replan/cancel (`M22`), `web_fetch` + hardening
-   (`M23/M26`), post-action verification (`M24`), dan final squad evidence gate
-   (`M27`). Baca seksi M19, M20, M22–M27.
+1. ~~**Auto-routing + review + research + verification + parallel wave:**~~ ✅ SELESAI — heuristik (`M19/M20`), review (`M22`), `web_fetch` + hardening (`M23/M26`), verification/evidence (`M24/M27`), dan parallel wave dengan approval queue (`M28`). Baca seksi M19, M20, M22–M28.
 
 2. ~~**Aksi destruktif lain:**~~ ✅ SELESAI (`M21`) — `delete`, `rename`, `move`
    ada di `src/file-ops.js`. Termasuk fix `/rollback` yang dulu gak bisa
@@ -680,6 +677,24 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
+
+## M28 — Parallel Wave + Approval Queue (2026-10-21)
+
+Task independen dalam satu wave sekarang dijalankan paralel dengan
+`Promise.allSettled`. Wave berikutnya tetap menunggu wave sebelumnya, sehingga
+`dependsOn` tetap deterministik dan hasil dependency tetap tersedia.
+
+Approval interaktif tidak ikut balapan. `src/approval-queue.js` menserialkan
+semua approval FIFO, menjaga prompt Telegram tidak tertukar saat dua worker
+meminta izin bersamaan. Queue tetap pulih setelah handler approval melempar error.
+
+Worker yang gagal tetap dikarantina per task; agregasi evidence M27 tetap menahan
+`ok:true` final kalau ada worker gagal atau tidak punya bukti.
+
+Tes M28:
+- approval queue: **6 pass**;
+- parallel wave + dependency: **4 pass**;
+- suite: **567 pass, 0 fail, 30 file**.
 
 ## M27 — Final Squad Evidence Gate (2026-10-21)
 

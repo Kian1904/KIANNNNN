@@ -364,11 +364,9 @@ function aggregateResults(results) {
  * context fresh per worker (context isolation), hormati dependsOn (wave),
  * lalu aggregate jadi ringkasan final.
  *
- * DESAIN: task dalam satu wave dijalankan SEKUENSIAL, bukan paralel — alasannya
- * (1) askApproval pakai readline, nggak aman kalau dua worker interaktif
- * barengan; (2) provider gratisan kena rate limit, paralel malah lebih lambat.
- * Kalau nanti mau paralel, tukar inner loop jadi Promise.allSettled — struktur
- * wave-nya udah siap.
+ * DESAIN M28: task dalam satu wave dijalankan paralel via Promise.allSettled,
+ * sementara approval diserialkan oleh approval queue. Wave berikutnya tetap
+ * menunggu wave sebelumnya selesai, jadi dependency tetap deterministik.
  *
  * M17: satu worker yang MELEMPAR error TIDAK mematikan seluruh squad — error
  * dikarantina jadi summary task itu ("TASK GAGAL: ..."), task lain lanjut, dan
@@ -407,24 +405,26 @@ export async function executePlan(planResult, ctx, deps = {}) {
   const summaryById = new Map();
 
   for (const wave of waves) {
-    for (const task of wave) {
+    const settled = await Promise.allSettled(wave.map(async task => {
       const agent = getAgent(task.role);   // role tervalidasi, pasti ada
       const depSummary = task.dependsOn != null ? summaryById.get(task.dependsOn) : null;
       const instruction = buildWorkerInstruction(task, originalInstruction, depSummary);
-
       const summary = await runTaskFn(
         instruction, agentMd, availableTools, threadId,
         stats, trackProvider, trackAction, isDangerous, askApproval, agent
-      ).catch(err => {
-        // Karantina: worker gagal total (crash, provider mati, dsb) —
-        // jadikan error jadi summary task ini, squad TETAP lanjut.
-        console.error(`[squad] worker task ${task.id} (${task.role}) gagal:`, err.message);
-        return `TASK GAGAL: ${err.message}`;
-      });
+      );
+      return { task, summary };
+    }));
 
-      const clean = typeof summary === 'string' && summary.trim()
-        ? summary.trim()
-        : '(worker tidak memberi ringkasan — kemungkinan habis loop tanpa done)';
+    for (let i = 0; i < settled.length; i++) {
+      const task = wave[i];
+      const item = settled[i];
+      const clean = item.status === 'fulfilled' && typeof item.value.summary === 'string' && item.value.summary.trim()
+        ? item.value.summary.trim()
+        : item.status === 'rejected'
+          ? `TASK GAGAL: ${item.reason?.message || item.reason}`
+          : '(worker tidak memberi ringkasan — kemungkinan habis loop tanpa done)';
+      if (item.status === 'rejected') console.error(`[squad] worker task ${task.id} (${task.role}) gagal:`, item.reason?.message || item.reason);
       const failed = clean.startsWith('TASK GAGAL:') || clean.startsWith('(worker tidak memberi');
       const evidence = failed ? [] : [`worker ${task.role} menghasilkan ringkasan terkontrol`];
       summaryById.set(task.id, clean);
