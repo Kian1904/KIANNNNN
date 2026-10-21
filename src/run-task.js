@@ -9,7 +9,7 @@ import { runCommand } from './bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js';
 import { callTool } from '../mcp/client.js';
 import { searchWeb } from './search.js';
-import { fetchWebPage, focusWebText, buildWebEvidenceSummary } from './web-fetch.js';
+import { fetchWebPage, focusWebText, buildWebEvidenceSummary, buildResearchFallback } from './web-fetch.js'
 import { verifyAction, verifyCompletion } from './verifier.js';
 import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
@@ -90,9 +90,15 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       // biar user tau kenapa, dan progress sebelumnya gak hilang.
       print('error', `Model gagal balas format yang benar setelah ${sr.attempts}x percobaan.`);
       printBlock(String(sr.lastError || '').split('\n')[0], 2);
-      const fallbackSummary = history.length > 0
-        ? `Task berhenti: model tidak balas format yang benar.\n\nYang sudah dikerjakan (${history.length} langkah):\n${buildHistoryText(history)}`
-        : 'Task gagal: model tidak balas format yang benar sejak langkah pertama.';
+      const hasEvidence = history.some(h => h.action === 'web_search' || h.action === 'web_fetch');
+      const fallbackSummary = hasEvidence
+        ? buildResearchFallback(instruction, history)
+        : history.length > 0
+          ? `Task berhenti: model tidak balas format yang benar.\n\nYang sudah dikerjakan (${history.length} langkah):\n${buildHistoryText(history)}`
+          : 'Task gagal: model tidak balas format yang benar sejak langkah pertama.';
+      if (hasEvidence) {
+        print('info', 'Provider/format gagal — jawaban disusun langsung dari evidence riset (tanpa LLM).');
+      }
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: fallbackSummary, actionType: 'done', detail: { stopped: 'llm-format-failure', attempts: sr.attempts } });
       }

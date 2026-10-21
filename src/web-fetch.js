@@ -78,6 +78,12 @@ export function buildWebEvidenceSummary(history = []) {
   }).join('\n\n').slice(0, 3000);
 }
 
+export function buildResearchFallback(instruction, history = []) {
+  const evidence = buildWebEvidenceSummary(history);
+  if (!evidence.trim()) return `Data riset belum tersedia untuk: ${instruction}.`;
+  return `Hasil riset untuk "${instruction}":\n\n${evidence}\n\nSumber diambil dari hasil web yang tersedia.`;
+}
+
 async function readLimited(res, maxBytes) {
   const declared = Number(res.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) return { error: 'too_large' };

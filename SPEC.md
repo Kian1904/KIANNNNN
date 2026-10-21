@@ -678,6 +678,30 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
 
+## M36 — Tangan Riset Sendiri: Jawaban Gak Boleh Mati Gara-Gara LLM (2026-10-21)
+
+Gejala: agent sudah `web_fetch` halaman yang berisi suhu, tetapi tetap menjawab
+"data belum tersedia" — atau bahkan kosong total ketika provider kena `429`.
+
+Akar masalah: seluruh rangkuman bergantung pada satu panggilan LLM. Kalau LLM
+menolak menyimpulkan, atau provider limit, evidence yang sudah terkumpul tidak
+pernah dipakai.
+
+Perbaikan M36:
+
+- `buildResearchFallback(instruction, history)` menyusun jawaban **langsung dari
+  evidence** yang sudah dikumpulkan, tanpa LLM;
+- dipakai otomatis ketika model gagal total balas format (termasuk saat provider
+  `429` / semua fallback habis);
+- evidence memakai hasil `focusWebText` (JSON weather diflatten) sehingga angka
+  tetap terbaca;
+- output selalu menyebut sumbernya.
+
+Prinsipnya: **riset tidak boleh bergantung pada satu titik kegagalan.** Kalau
+modelnya mati, tangan risetnya tetap bekerja.
+
+Test `tests/test-research-fallback.mjs`: **5 pass**. Suite: **593 pass, 0 fail, 33 file**.
+
 ## M34 — Fokus Data Riset, Bukan Copy-Paste Halaman (2026-10-21)
 
 M33 sudah membatasi preview terminal, tetapi halaman BMKG masih membawa
