@@ -380,6 +380,7 @@ function aggregateResults(results) {
  * @returns {Promise<{ok:boolean, fallback:boolean, results:Array, finalSummary:string, problems:string[]}>}
  */
 export async function executePlan(planResult, ctx, deps = {}) {
+  const emit = typeof deps.onEvent === 'function' ? deps.onEvent : () => {};
   const {
     originalInstruction, agentMd, availableTools, threadId,
     stats, trackProvider, trackAction, isDangerous, askApproval,
@@ -404,8 +405,11 @@ export async function executePlan(planResult, ctx, deps = {}) {
   const results = [];
   const summaryById = new Map();
 
-  for (const wave of waves) {
+  for (let waveIndex = 0; waveIndex < waves.length; waveIndex++) {
+    const wave = waves[waveIndex];
+    emit({ type: 'wave_start', wave: waveIndex + 1, count: wave.length });
     const settled = await Promise.allSettled(wave.map(async task => {
+      emit({ type: 'agent_start', id: task.id, role: task.role, wave: waveIndex + 1 });
       const agent = getAgent(task.role);   // role tervalidasi, pasti ada
       const depSummary = task.dependsOn != null ? summaryById.get(task.dependsOn) : null;
       const instruction = buildWorkerInstruction(task, originalInstruction, depSummary);
@@ -428,6 +432,8 @@ export async function executePlan(planResult, ctx, deps = {}) {
       const failed = clean.startsWith('TASK GAGAL:') || clean.startsWith('(worker tidak memberi');
       const evidence = failed ? [] : [`worker ${task.role} menghasilkan ringkasan terkontrol`];
       summaryById.set(task.id, clean);
+      if (failed) emit({ type: 'agent_error', id: task.id, role: task.role, error: clean });
+      else emit({ type: 'agent_done', id: task.id, role: task.role, summary: clean, evidence: evidence.length });
       results.push({ id: task.id, role: task.role, summary: clean, verified: !failed, evidence, error: failed ? clean : undefined });
     }
   }

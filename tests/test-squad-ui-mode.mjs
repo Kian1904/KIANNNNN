@@ -1,0 +1,9 @@
+// M45 UI mode selection regression.
+import { shouldUseInk } from '../src/squad-ui.js';
+let pass = 0, fail = 0;
+const check = (l, c) => c ? (pass++, console.log(`  PASS ${l}`)) : (fail++, console.log(`  FAIL ${l}`));
+check('ink only on explicit TTY mode', shouldUseInk({ env: { K_SROUTER_UI: 'ink' }, stdout: { isTTY: true } }));
+check('plain on non-TTY', !shouldUseInk({ env: { K_SROUTER_UI: 'ink' }, stdout: { isTTY: false } }));
+check('plain by default', !shouldUseInk({ env: {}, stdout: { isTTY: true } }));
+console.log(`\n=== HASIL SQUAD-UI-MODE: ${pass} pass, ${fail} fail ===`);
+process.exit(fail ? 1 : 0);

@@ -8,6 +8,8 @@ import { runCasual } from './run-casual.js';
 import { runInstruction, getActiveAgent, setActiveAgent, listAgents, plan, executePlan } from './orchestrator.js';
 import { discoverTools } from '../mcp/client.js';
 import { print, printBlock, printUserMessage, printAssistantMessage, printSystemMessage, header, sep, blank, PROMPT, completer, banner } from './ui.js';
+import { createSquadUiState, applySquadEvent, renderPlainSquad, shouldUseInk } from './squad-ui.js';
+import { startInkSquadUi } from './ink-squad-ui.js';
 import * as tui from './tui.js';
 import { classifyIntent } from './intent.js';
 import { readFileSafe, loadAgentMd } from './utils/fs.js';
@@ -531,11 +533,25 @@ async function startREPL() {
       sep();
       print('info', 'Rencana disetujui — mulai eksekusi.');
 
+      const squadState = createSquadUiState({ task: taskText, waves: p.tasks ? [p.tasks] : [] });
+      const inkMode = shouldUseInk();
+      let inkInstance = null;
+      const onEvent = event => {
+        applySquadEvent(squadState, event);
+        if (inkInstance?.rerender) inkInstance.rerender(squadState);
+        else if (!inkMode) {
+          // Plain fallback hanya menampilkan event penting supaya output gak spam.
+          if (event.type === 'agent_error') print('error', `${event.role}: ${event.error}`);
+          if (event.type === 'agent_done') print('info', `${event.role} selesai (evidence: ${event.evidence})`);
+        }
+      };
+      if (inkMode) inkInstance = startInkSquadUi(squadState);
       const exec = await executePlan(p, {
         originalInstruction: taskText,
         agentMd, availableTools, threadId,
         stats, trackProvider, trackAction, isDangerous, askApproval,
-      });
+      }, { onEvent });
+      if (inkInstance?.unmount) inkInstance.unmount();
 
       sep();
       print('done', 'Ringkasan akhir squad:');

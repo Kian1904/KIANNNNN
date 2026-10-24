@@ -678,6 +678,33 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
 
+## M45 — Ink Live Squad UI (2026-10-22)
+
+UI squad sekarang event-driven dan punya renderer Ink opsional.
+
+- `src/squad-ui.js` menyimpan state UI yang terpisah dari execution/safety core:
+  task, wave, agent status, evidence, summary, dan error.
+- `src/ink-squad-ui.js` merender panel live dengan React + Ink:
+  status `pending/running/done/error`, wave aktif, evidence counter, dan error.
+- `src/orchestrator.js` menerima optional `deps.onEvent` dan mengemisi:
+  `wave_start`, `agent_start`, `agent_done`, `agent_error`.
+- `src/repl.js` mengaktifkan Ink hanya kalau `K_SROUTER_UI=ink` dan stdout
+  benar-benar TTY. Default tetap renderer lama/plain; Telegram tidak ikut
+  bergantung pada Ink.
+- Kalau Ink tidak aktif atau terminal bukan TTY, state/event tetap aman dan
+  output fallback tidak spam: hanya agent selesai/error yang ditampilkan.
+- `ink` dan `react` ditambahkan sebagai dependency UI; execution core,
+  approval, verifier, budget, rollback, dan evidence gate tidak diubah otoritasnya.
+
+Aktifkan:
+
+```bash
+K_SROUTER_UI=ink node index.js
+```
+
+Tes M45: squad UI state **6 pass**, UI mode **3 pass**, full suite
+**668 pass, 0 fail, 41 file**.
+
 ## M44 — Self-Healing Harness & Strict Verification (2026-10-22)
 
 M44 memperkuat prinsip: agent tidak boleh berhenti hanya karena mengklaim
