@@ -13,11 +13,12 @@ import { fetchWebPage, focusWebText } from './web-fetch.js'
 import { verifyAction, verifyCompletion } from './verifier.js';
 import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
-import { inspectTarget, describeTarget, rejectReason, rejectWriteReason, applyFileOp, applySafeFileOp } from './file-ops.js';
+import { inspectTarget, describeTarget, rejectReason, rejectWriteReason, applyFileOp, applySafeFileOp, lintAfterWrite } from './file-ops.js';
 import { composeAgentPrompt, filterToolsForAgent } from './agents.js';
 import { preflightEnvironment } from './environment.js';
 import { createTaskBudget } from './task-budget.js';
 import { delegateTask } from './delegate-cli.js';
+import { createTaskState, allCompleted } from './task-state.js';
 import { packetFromHistory, buildEvidenceFallback } from './research-engine.js';
 import { compactResearchContext } from './research-context.js';
 
@@ -43,6 +44,7 @@ const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:task]', ...args); };
 export async function runTask(instruction, agentMd, availableTools, threadId, stats, trackProvider, trackAction, isDangerous, askApproval, agentConfig = null) {
   if (stats) stats.tasks++;
   const history = [];
+  let taskState = null;
   let lastTarget = null;
   const recentMemory = getRecentDecisions(5);
   let webSearchCount = 0;
@@ -162,6 +164,13 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
     // --- DONE ---
     if (step.action === 'done') {
+      // M44: cek internal checklist dulu sebelum terima done
+      if (taskState && !allCompleted(taskState)) {
+        const pending = taskState.items.filter(i => i.status === 'pending').map(i => i.description).join(', ');
+        print('blocked', `Belum boleh selesai — checklist masih ada yang pending: ${pending}`);
+        history.push({ action: 'user_condition', condition: `[SISTEM: ACTION done DITOLAK. Checklist belum selesai: ${pending}. Selesaikan semua item dulu.]` });
+        continue;
+      }
       const completion = verifyCompletion(history, step.summary);
       if (!completion.ok) {
         print('error', `Belum boleh selesai: ${completion.reason}`);
@@ -276,10 +285,11 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       });
       if (result.ok) {
         print('delegate_ok', `${step.agent}: ${result.summary.slice(0, 2000)}`);
-        history.push({ action: 'delegate', agent: step.agent, task: step.task, summary: result.summary, approved: true, verified: true });
+        history.push({ action: 'delegate', agent: step.agent, task: step.task, summary: result.summary, artifacts: result.artifacts || [], changed_files: result.changed_files || [], tests: result.tests || [], tests_passed: result.tests_passed === true, approved: true, verified: result.verified === true });
       } else {
         print('delegate_err', `${step.agent}: ${result.error || 'gagal'}`);
         history.push({ action: 'delegate', agent: step.agent, task: step.task, approved: true, verified: false, error: result.error || 'gagal' });
+        history.push({ action: 'user_condition', condition: `[SISTEM: Delegasi ke ${step.agent} GAGAL: ${result.error || 'gagal'}. Kamu WAJIB memperbaiki task atau coba pendekatan lain sebelum bilang done.]` });
       }
       continue;
     }
@@ -468,6 +478,16 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         if (step.action !== 'mkdir') saveSnapshot({ filepath: step.target, content: oldContent, isNewFile: !fs.existsSync(step.target) });
         const result = applySafeFileOp(step.action, step.target, step.content);
         if (!result.ok) return `${step.action} gagal: ${result.error}`;
+        // M44: auto-lint gate — cek syntax file JS setelah tulis, rollback kalau error
+        if (step.action !== 'mkdir') {
+          const lint = lintAfterWrite(step.target, oldContent);
+          if (!lint.ok) {
+            print('error', lint.error);
+            history.push({ action: step.action, target: step.target, approved: true, verified: false, error: lint.error });
+            history.push({ action: 'user_condition', condition: `[SISTEM: File ${step.target} GAGAL syntax check. ${lint.error} Kamu WAJIB memperbaiki error ini sebelum melanjutkan.]` });
+            continue;
+          }
+        }
         const actual = step.action === 'mkdir' ? fs.existsSync(step.target) : fs.readFileSync(step.target, 'utf8');
         const verification = step.action === 'mkdir' ? { ok: fs.statSync(step.target).isDirectory(), reason: 'direktori terbukti ada' } : verifyAction({ action: 'edit', target: step.target, expectedContent: content, actualContent: actual });
         print(verification.ok ? 'verify_ok' : 'error', verification.reason);
@@ -537,6 +557,14 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         print('error', `Gagal menulis ${target}: ${err.message}`);
         history.push({ action: 'edit', target, approved: true, error: err.message });
         return `Edit gagal: ${err.message}`;
+      }
+      // M44: auto-lint gate untuk edit
+      const editLint = lintAfterWrite(target, oldContent);
+      if (!editLint.ok) {
+        print('error', editLint.error);
+        history.push({ action: 'edit', target, approved: true, verified: false, error: editLint.error });
+        history.push({ action: 'user_condition', condition: `[SISTEM: Edit ${target} GAGAL syntax check. ${editLint.error} Kamu WAJIB memperbaiki error ini sebelum melanjutkan.]` });
+        continue;
       }
 
       const editVerification = verifyAction({ action: 'edit', target, expectedContent: step.new_content, actualContent: fs.readFileSync(target, 'utf8') });

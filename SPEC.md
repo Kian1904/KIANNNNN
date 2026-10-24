@@ -678,6 +678,29 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
 
+## M44 — Self-Healing Harness & Strict Verification (2026-10-22)
+
+M44 memperkuat prinsip: agent tidak boleh berhenti hanya karena mengklaim
+selesai. Self-verification sekarang dipaksa di execution layer.
+
+- `src/task-state.js`: checklist internal (`pending`/`completed`). `done` ditolak
+  jika ada item pending.
+- `lintAfterWrite()` di `src/file-ops.js`: file JS/MJS/CJS otomatis dicek dengan
+  `node --check` setelah write/edit/append. Syntax error memicu rollback ke isi
+  sebelumnya dan masuk sebagai `user_condition` yang memaksa koreksi.
+- Bash dan delegate failure otomatis diubah menjadi `user_condition` eksplisit;
+  agent wajib memperbaiki atau mencoba pendekatan lain sebelum `done`.
+- Delegate result dinormalisasi menjadi artifacts, changed_files, tests, dan
+  tests_passed. `verified` hanya true jika artifacts ada dan seluruh test punya
+  exit code 0; summary saja tidak cukup.
+- `run-task.js` menyimpan structured delegate evidence ke history.
+
+Verifikasi M44:
+
+- task-state: **7 pass**;
+- structured delegate: **7 pass**;
+- full suite: **659 pass, 0 fail, 39 file**.
+
 ## M43 — Delegated CLI Agents (Qwen / Claude / Antigravity) (2026-10-22)
 
 KIANNNNN sekarang dapat mendelegasikan subtask terkontrol ke CLI agent yang

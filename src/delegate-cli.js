@@ -114,6 +114,20 @@ export function buildDelegateCommand(agentName, prompt, opts = {}) {
  * @param {string} format - 'json' | 'text'
  * @returns {{ ok: boolean, summary: string, data?: object, error?: string }}
  */
+export function parseDelegateResult(raw, format = 'json') {
+  const parsed = parseDelegateOutput(raw, format);
+  if (!parsed.ok) return parsed;
+  const data = parsed.data || {};
+  if (data.tests_passed !== undefined && typeof data.tests_passed !== 'boolean') {
+    return { ok: false, summary: parsed.summary, error: 'tests_passed harus boolean', verified: false };
+  }
+  const artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+  const changed_files = Array.isArray(data.changed_files) ? data.changed_files : [];
+  const tests = Array.isArray(data.tests) ? data.tests : [];
+  const testsPassed = data.tests_passed === true && tests.every(t => t && t.exit_code === 0);
+  return { ...parsed, artifacts, changed_files, tests, tests_passed: data.tests_passed === true, verified: artifacts.length > 0 && testsPassed };
+}
+
 export function parseDelegateOutput(raw, format = 'json') {
   const trimmed = String(raw || '').trim();
   if (!trimmed) return { ok: false, summary: '', error: 'output kosong' };
@@ -161,7 +175,7 @@ export async function delegateTask(agentName, prompt, opts = {}) {
     if (result.code !== 0) {
       return { ok: false, summary: '', agent: agentName, error: result.stderr || `exit code ${result.code}` };
     }
-    const parsed = parseDelegateOutput(result.stdout, format);
+    const parsed = parseDelegateResult(result.stdout, format);
     return { ...parsed, agent: agentName };
   }
 
@@ -175,7 +189,7 @@ export async function delegateTask(agentName, prompt, opts = {}) {
       maxBuffer: 10 * 1024 * 1024, // 10MB
       env: { ...process.env },
     });
-    const parsed = parseDelegateOutput(stdout, format);
+    const parsed = parseDelegateResult(stdout, format);
     return { ...parsed, agent: agentName };
   } catch (err) {
     // execFile throws on non-zero exit or timeout
