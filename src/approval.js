@@ -4,7 +4,7 @@
 // Dipindah dari repl.js (M17) supaya jalur Telegram gak duplikat regex
 // dan gak beda perilaku sama sekali kalau aturannya nanti berubah.
 //
-// Written by K-sRouter
+// Written by K'
 
 export const ALWAYS_ASK_PATTERNS = [
   /\brm\b/, /\bsudo\b/, /\bchmod\b/, /\bdd\b/,

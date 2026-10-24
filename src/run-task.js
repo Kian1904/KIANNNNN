@@ -19,6 +19,7 @@ import { preflightEnvironment } from './environment.js';
 import { createTaskBudget } from './task-budget.js';
 import { delegateTask } from './delegate-cli.js';
 import { createTaskState, allCompleted } from './task-state.js';
+import { readEnv } from './env.js';
 import { packetFromHistory, buildEvidenceFallback } from './research-engine.js';
 import { compactResearchContext } from './research-context.js';
 
@@ -66,8 +67,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
   // nunggu provider error baru sadar.
   const budget = createTaskBudget({
     maxSteps: maxLoops,
-    maxSearches: parseInt(process.env.K_SROUTER_MAX_SEARCH) || 2,
-    maxFetches: parseInt(process.env.K_SROUTER_MAX_FETCH) || 3,
+    maxSearches: parseInt(readEnv('MAX_SEARCH')) || 2,
+    maxFetches: parseInt(readEnv('MAX_FETCH')) || 3,
     maxProviderCalls: parseInt(process.env.MAX_LOOPS) ? Math.min(MAX_LOOPS * 3, 30) : 15,
   });
   let systemPromptOverride = agentConfig ? composeAgentPrompt(agentConfig, agentMd) : null;

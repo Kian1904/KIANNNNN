@@ -3,7 +3,7 @@
 // untuk file besar"): baris yang di-insert/delete di tengah kini TIDAK bikin
 // seluruh file bergeser dan ke-flag semua.
 //
-// Written by K-sRouter
+// Written by K'
 
 const CTX = 3;        // baris context per hunk
 const MAX_MYERS = 3000; // batas baris sisa (pasca-trim) utk pakai Myers

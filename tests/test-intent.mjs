@@ -11,7 +11,7 @@
 //     Urutan cek penting: TASK_VERBS duluan bakal nelen sinyal "kenapa".
 //   - ragu → casual, BUKAN task. Salah ke task = mahal (agent otonom jalan).
 //
-// Written by K-sRouter
+// Written by K'
 
 import { classifyIntent, classifyIntentHeuristic } from '../src/intent.js';
 

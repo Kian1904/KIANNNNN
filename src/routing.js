@@ -10,7 +10,7 @@
 // buat nentuin "pake LLM lagi apa enggak" itu kontraproduktif: ongkosnya sama
 // kayak langsung ngerjain, tapi tanpa kepastian.
 //
-// Written by K-sRouter
+// Written by K'
 
 /** Penanda ada DUA pekerjaan atau lebih yang diurutkan. */
 const SEQUENCE_MARKERS = [

@@ -8,7 +8,7 @@
 // Isolasi: HOME di-set ke tmp sebelum import registry, jadi ~/.krouter_data/
 // connections.json user ASLI gak pernah ke-sentuh.
 //
-// Written by K-sRouter
+// Written by K'
 
 import fs from 'node:fs';
 import os from 'node:os';

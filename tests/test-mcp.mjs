@@ -7,7 +7,7 @@
 //      callTool('summarize') harus balikin hasil non-kosong.
 //
 // Dulu: 0 tool -> langsung exit 1, jadi suite gagal tiap kali server lagi mati.
-// Written by K-sRouter
+// Written by K'
 
 import { discoverTools, callTool } from '../mcp/client.js';
 import { getActiveConnections } from '../mcp/registry.js';

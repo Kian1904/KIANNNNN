@@ -11,10 +11,11 @@
 //      dengan stdout 2MB utuh dan langsung dikirim ke LLM. Bikin context
 //      jebol dan tagihan token meledak. Sekarang dua-duanya dipotong.
 //
-// Written by K-sRouter
+// Written by K'
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { readEnv } from './env.js';
 
 const execAsync = promisify(exec);
 
@@ -24,17 +25,17 @@ const execAsync = promisify(exec);
  * Default 180s — 60s kekecengan buat install/build di HP.
  */
 function timeoutMs() {
-  return Number(process.env.K_SROUTER_BASH_TIMEOUT_MS) || 180_000;
+  return Number(readEnv('BASH_TIMEOUT_MS')) || 180_000;
 }
 
 /** Batas buffer anak proses. 1MB default Node terlalu kecil. */
 function maxBuffer() {
-  return Number(process.env.K_SROUTER_BASH_MAXBUFFER) || 16 * 1024 * 1024;
+  return Number(readEnv('BASH_MAXBUFFER')) || 16 * 1024 * 1024;
 }
 
 /** Kalau output masih kelewat, potong manual segini buat dikirim ke LLM. */
 function sendLimit() {
-  return Number(process.env.K_SROUTER_BASH_SEND_LIMIT) || 20_000;
+  return Number(readEnv('BASH_SEND_LIMIT')) || 20_000;
 }
 
 /**

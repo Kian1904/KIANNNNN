@@ -8,7 +8,9 @@
 // Sumber sinyal diambil dari routing.js (padanan regex-nya) supaya konsisten:
 // kalau routing bilang "task kompleks", intent juga harus bilang task.
 //
-// Written by K-sRouter
+// Written by K'
+
+import { readEnv } from './env.js';
 
 /** Perintah/permintaan eksekusi yang jelas — gak perlu mikir. */
 const TASK_VERBS = [
@@ -179,7 +181,7 @@ Jawab HANYA: casual / task / hybrid. Tanpa penjelasan, tanpa tanda baca.`;
  * pemanggil ngasih askFn. Kalau ragu tapi gak ada askFn, pakai tebakan
  * heuristik — lebih baik daripada nge-block.
  *
- * Set `K_SROUTER_INTENT_LLM=1` buat maksa selalu pakai LLM (buat debugging).
+ * Set `K_INTENT_LLM=1` buat maksa selalu pakai LLM (buat debugging).
  *
  * @param {string} input
  * @param {(system: string, user: string) => Promise<string>} [askFn]
@@ -188,7 +190,7 @@ Jawab HANYA: casual / task / hybrid. Tanpa penjelasan, tanpa tanda baca.`;
 export async function classifyIntent(input, askFn) {
   const h = classifyIntentHeuristic(input);
 
-  const forceLlm = process.env.K_SROUTER_INTENT_LLM === '1';
+  const forceLlm = readEnv('INTENT_LLM') === '1';
   const wantLlm = forceLlm || !h.confident;
 
   if (!wantLlm || typeof askFn !== 'function') {

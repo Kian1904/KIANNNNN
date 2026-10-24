@@ -1,4 +1,4 @@
-# K-sRouter-CLI — SPEC
+# K' — SPEC
 
 > Dokumen ini adalah SUMBER KEBENARAN project. Semua AI (Claude/Gemini/Qwen/ChatGPT)
 > WAJIB baca file ini sebelum kerja apapun. Chat/history tidak dianggap sumber
@@ -12,7 +12,7 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP plugin syst
 ## Keputusan Arsitektur (FINAL, jangan didebat ulang tanpa alasan baru)
 
 - **Storage:** SQLite lokal via `node:sqlite` untuk conversation log dan memory.
-  JSON file (`~/.krouter_data/connections.json`) untuk MCP plugin registry —
+  JSON file (`~/.kian_data/connections.json`) untuk MCP plugin registry —
   dipilih karena human-readable dan mudah di-inspect/edit manual.
 
 - **Provider cascade (7 provider):** xKiroCoder (Qwen3-Coder-Plus) → Gemini
@@ -22,7 +22,7 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP plugin syst
   urutan cascade tanpa ganti code. Model names di `.env`, bukan hardcode.
   
   **BARU — Provider Registry (2026-08-28):** Provider config sekarang disimpan
-  di `~/.config/k-srouter/settings.json` (JSON array), dikelola via command `/auth`
+  di `.settings.json` root repo (JSON array), dikelola via command `/auth`
   (add/remove/use/key). API keys plaintext dengan `chmod 600`. Atomic write
   menggunakan `.tmp` file. `src/providers.js` membaca dari registry secara dinamis.
 
@@ -68,8 +68,8 @@ cascade). Setelah stabil, dihubungkan ke aplikasi profitable via MCP plugin syst
 ## Keamanan
 - API key/token TIDAK di-commit. Pakai `.env` via dotenv (untuk default seeding)
   atau di `settings.json` (untuk runtime provider config). `settings.json`
-  di-`chmod 600` dan disimpan di `~/.config/k-srouter/`.
-- `.gitignore` cover `.env`, `~/.krouter_data/` (sudah di luar repo), config pribadi.
+  di-`chmod 600` dan disimpan sebagai `.settings.json` di root repo.
+- `.gitignore` cover `.env`, `~/.kian_data/` (sudah di luar repo), config pribadi.
 
 ## Batasan Lingkungan (Android/Termux)
 - Node.js murni. No native modules (better-sqlite3, dll — gagal di ARM/Bionic).
@@ -314,16 +314,16 @@ Empat kerjaan, semuanya udah terverifikasi (test), bukan klaim kosong.
   digabung ke path). Ini fix bug lama, bukan cuma buat streaming.
 - `src/run-casual.js`: reply casual sekarang stream kata-per-kata ke stdout.
   Blok ` thinking...</think>` **disaring real-time** (ditahan sampai ketemu
-  penanda tutup, sisanya baru dicetak). Tombol matiin: `K_SROUTER_STREAM=0`.
+  penanda tutup, sisanya baru dicetak). Tombol matiin: `K_STREAM=0`.
 - `run-task.js` **sengaja TIDAK** di-streaming: output-nya terstruktur per-step
   (label + diff + approval), kalau di-stream malah bikin berantakan.
 
 ### 2. npm global (`package.json` + `bin/kian`)
-- `package.json` dikasih field `bin`: `kian` dan `ksrouter` → `./bin/kian`.
+- `package.json` dikasih field `bin`: `kian` → `./bin/kian` (alias `ksrouter` dihapus di M46).
   Tanpa field ini `npm link` gak bikin command apa-apa.
 - `npm link` udah dijalanin. Verifikasi: `which kian` →
   `/data/data/com.termux/files/usr/bin/kian` (symlink ke
-  `../lib/node_modules/k-srouter-cli/bin/kian`), dan `kian` dipanggil dari
+  `../lib/node_modules/kian-cli/bin/kian`), dan `kian` dipanggil dari
   luar repo (`cd /tmp`) → banner + REPL jalan normal.
 - Command `kian` bisa dipakai dari folder manapun tanpa `cd ~/KIANNNNN` dulu.
 
@@ -378,7 +378,7 @@ masing-masing file, jadi rawan divergen.
   `ww`, `well-well`, `terabas`, `normal`, `default`.
 - Ganti mode → `sessionAllowed` di-`clear()`, biar izin "allow for session"
   dari mode sebelumnya gak kebawa.
-- Env override saat start: `K_SROUTER_MODE=wellwell`. Default tetap SAFE.
+- Env override saat start: `K_MODE=wellwell`. Default tetap SAFE.
 - YOLO kasih banner peringatan eksplisit di REPL + Telegram.
 - Aksi destruktif dideteksi dari dua sumber: label aksi (`DESTRUCTIVE_ACTIONS`:
   delete/rename/move/remove) **dan** `forceAsk` yang dikirim `run-task.js`
@@ -418,7 +418,7 @@ salah-route ke single cuma bikin user ketik `/squad` manual. Karena itu
 default-nya single, dan `shouldAsk: true` dipasang di semua kasus ragu.
 
 **Kontrol:** `/route` (status) · `/route on` · `/route off` · `/route test <task>`
-Env: `K_SROUTER_AUTOROUTE=1` buat nyalain dari start. **Default MATI** — opt-in.
+Env: `K_AUTOROUTE=1` buat nyalain dari start. **Default MATI** — opt-in.
 
 **Wiring:** di `src/repl.js`, routing jalan SEBELUM dispatcher `/squad`, dan
 kalau keputusannya squad, dia nyuntik prefix `/squad ` ke instruction — jadi
@@ -509,10 +509,10 @@ Fix (`src/bash.js`):
   jalur sukses DAN error, dengan penanda `[...TRUNCATED n karakter...]`.
 - Field `truncated: true` + `buffered: true` biar pemanggil bisa bedain
   "output kepotong" vs "command gagal".
-- **Timeout dibaca PER-PANGGILAN** (`process.env.K_SROUTER_BASH_TIMEOUT_MS`
+- **Timeout dibaca PER-PANGGILAN** (`process.env.K_BASH_TIMEOUT_MS`
   dibaca di dalam `runCommand`, bukan di-`const` pas import). Sebelumnya env
   yang diubah setelah import gak ngefek — ketangkep tes timeout.
-- Default timeout 120s (`K_SROUTER_BASH_TIMEOUT_MS` buat override).
+- Default timeout 120s (`K_BASH_TIMEOUT_MS` buat override).
 - Kena maxBuffer → balikin `buffered:true` + pesan jelas, BUKAN throw mentah.
 
 ### 2. `read` — buta bagian file di atas 2000 karakter (BUG)
@@ -606,7 +606,7 @@ Dulu test itu LIVE-CHECK `discoverTools()` → 0 tool → `exit 1`, jadi suite
 gagal tiap kali server lagi mati. Diperbaiki dua bagian:
 
 1. `tests/test-mcp.mjs` (rewrite) — **health-check dulu**, lalu bedain:
-   - 0 connection aktif (`~/.krouter_data/connections.json` gak ada / kosong) →
+   - 0 connection aktif (`~/.kian_data/connections.json` gak ada / kosong) →
      `SKIP exit 0` + catat. **Environmental, bukan regresi.**
    - ada connection tapi 0 tool terdiscovery (server mati/tidak terjangkau) →
      `SKIP exit 0` + catat.
@@ -627,7 +627,7 @@ gagal tiap kali server lagi mati. Diperbaiki dua bagian:
      `discoverTools()` balikin `[]` tanpa nge-throw.
    - **Isolasi wajib:** test nge-set `HOME` ke tmp **sebelum** import
      `registry.js` (registry ngitung path saat load), jadi
-     `~/.krouter_data/connections.json` user asli gak pernah ke-sentuh.
+     `~/.kian_data/connections.json` user asli gak pernah ke-sentuh.
 
 Hasil: suite penuh **163 pass, 0 fail, 14/14 file exit=0** (2026-10-19).
 
@@ -678,6 +678,94 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
 
+## M46 — Identity Unification: nama jadi `K'` (2026-10-22)
+
+Seluruh identitas proyek diganti dari `K-sRouter`/`k-srouter-cli` menjadi `K'`.
+
+### Env prefix
+
+Prefix baru `K_`, prefix lama `K_SROUTER_` masih dibaca sebagai deprecated.
+
+| Lama | Baru |
+| --- | --- |
+| `K_SROUTER_MODE` | `K_MODE` |
+| `K_SROUTER_UI` | `K_UI` |
+| `K_SROUTER_AUTOROUTE` | `K_AUTOROUTE` |
+| `K_SROUTER_STREAM` | `K_STREAM` |
+| `K_SROUTER_NO_COLOR` | `K_NO_COLOR` |
+| `K_SROUTER_MAX_SEARCH` | `K_MAX_SEARCH` |
+| `K_SROUTER_MAX_FETCH` | `K_MAX_FETCH` |
+| `K_SROUTER_BASH_TIMEOUT_MS` | `K_BASH_TIMEOUT_MS` |
+| `K_SROUTER_BASH_MAXBUFFER` | `K_BASH_MAXBUFFER` |
+| `K_SROUTER_BASH_SEND_LIMIT` | `K_BASH_SEND_LIMIT` |
+| `K_SROUTER_INTENT_LLM` | `K_INTENT_LLM` |
+
+Aturan resolver (`src/env.js`):
+
+- `K_<NAMA>` dibaca duluan;
+- kalau kosong/undefined, fallback ke `K_SROUTER_<NAMA>`;
+- string kosong dianggap absen, jadi fallback tetap jalan;
+- tidak ada akses `process.env.K_*` langsung di kode fitur — semua lewat
+  `readEnv()` supaya aturan di atas konsisten satu pintu.
+
+### Rename lain
+
+- `package.json` `name`: `k-srouter-cli` → `kian-cli`, versi `0.3.0`.
+- `bin` sekarang cuma `kian`; alias `ksrouter` dihapus.
+- Data dir: `~/.kian_data` (DB `kian.db`). Kalau `~/.krouter_data` sudah ada
+  dan `~/.kian_data` belum, folder lama tetap dipakai supaya riwayat user
+  dan `connections.json` MCP gak hilang (`src/db.js`, `mcp/registry.js`).
+- Komentar penanda file `// Written by K-sRouter` → `// Written by K'`
+  (31 file).
+- SPEC dibersihkan dari rujukan `~/.config/k-srouter/` yang sudah lama tidak
+  benar — config nyata ada di `.settings.json` root repo.
+
+### Bug nyata yang ketangkep saat uji UI
+
+Waktu diuji di TTY asli (`script -qc "K_UI=ink node ..."`), panel Ink sempat
+error:
+
+```text
+Objects are not valid as a React child (found: object with keys {task, waves, ...})
+```
+
+Penyebab: `rerender(state)` meneruskan state mentah, padahal komponennya
+menerima props `state`. Akibatnya panel cuma sempat tampil sekali lalu hilang.
+
+Perbaikan di `src/ink-squad-ui.js`:
+
+- `rerender(nextState)` sekarang membungkus ulang jadi
+  `createElement(SquadView, { state: nextState })`;
+- `SquadView` defensif: kalau `state`/`state.agents` belum ada, tampilkan
+  placeholder alih-alih crash;
+- `startInkSquadUi` bisa disuntik `_renderImpl` supaya bisa dites tanpa TTY.
+
+Bukti uji TTY asli (sebelum renderer di-unmount, urutan frame yang tercetak):
+
+```text
+╭─────────────────────────────────────────╮
+│ KIANNNNN  ·  smoke squad                │
+│ Wave 1  ·  Evidence 2                   │
+│  ✓ researcher     done                  │
+│  ✗ coder          error — test gagal    │
+╰─────────────────────────────────────────╯
+INK_SMOKE_OK
+```
+
+Tes M46:
+
+- `test-env.mjs` **11 pass** (prioritas `K_`, fallback legacy, int flag);
+- `test-squad-ui-mode.mjs` **5 pass** (termasuk legacy + prioritas);
+- `test-ink-renderer.mjs` **9 pass** (kontrak rerender/props);
+- full suite **690 pass, 0 fail, 43 file**.
+
+Cara pakai:
+
+```bash
+K_UI=ink node index.js      # live squad panel
+K_MODE=wellwell node index.js
+```
+
 ## M45 — Ink Live Squad UI (2026-10-22)
 
 UI squad sekarang event-driven dan punya renderer Ink opsional.
@@ -688,7 +776,7 @@ UI squad sekarang event-driven dan punya renderer Ink opsional.
   status `pending/running/done/error`, wave aktif, evidence counter, dan error.
 - `src/orchestrator.js` menerima optional `deps.onEvent` dan mengemisi:
   `wave_start`, `agent_start`, `agent_done`, `agent_error`.
-- `src/repl.js` mengaktifkan Ink hanya kalau `K_SROUTER_UI=ink` dan stdout
+- `src/repl.js` mengaktifkan Ink hanya kalau `K_UI=ink` dan stdout
   benar-benar TTY. Default tetap renderer lama/plain; Telegram tidak ikut
   bergantung pada Ink.
 - Kalau Ink tidak aktif atau terminal bukan TTY, state/event tetap aman dan
@@ -696,10 +784,11 @@ UI squad sekarang event-driven dan punya renderer Ink opsional.
 - `ink` dan `react` ditambahkan sebagai dependency UI; execution core,
   approval, verifier, budget, rollback, dan evidence gate tidak diubah otoritasnya.
 
-Aktifkan:
+Aktifkan (lihat M46 — `K_UI=ink`; `K_SROUTER_UI=ink` masih jalan sebagai
+alias deprecated, tapi syarat TTY tetap sama):
 
 ```bash
-K_SROUTER_UI=ink node index.js
+K_UI=ink node index.js
 ```
 
 Tes M45: squad UI state **6 pass**, UI mode **3 pass**, full suite
@@ -792,8 +881,8 @@ provider 429 bikin seluruh jalur mati, dan konteks web mentah memicu rate limit.
 - Snapshot state TIDAK pernah memuat API key.
 
 ### M40 — Task Budget (`src/task-budget.js`)
-- Per task: `maxSteps`, `maxSearches` (default 2, `K_SROUTER_MAX_SEARCH`),
-  `maxFetches` (default 3, `K_SROUTER_MAX_FETCH`), `maxProviderCalls`.
+- Per task: `maxSteps`, `maxSearches` (default 2, `K_MAX_SEARCH`),
+  `maxFetches` (default 3, `K_MAX_FETCH`), `maxProviderCalls`.
 - `budget.consume('search'|'fetch')` di semua jalur web — termasuk safety net
   auto-fetch. Habis → paksa rangkum dari evidence, bukan loop nunggu error.
 - Alias tunggal/jamak diterima (`step`/`steps`, dst), fail-closed.

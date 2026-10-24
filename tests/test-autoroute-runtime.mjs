@@ -9,7 +9,7 @@
 // lalu ngecek outputnya. Gak manggil LLM: kita masukin task SIMPEL dulu
 // (yang harusnya single-agent), baru cek perilakunya.
 //
-// Written by K-sRouter
+// Written by K'
 
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -32,7 +32,7 @@ async function runREPL(lines, { settleMs = 900, timeoutMs = 30000 } = {}) {
     const child = spawn(process.execPath, ['index.js'], {
       cwd: ROOT,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, K_SROUTER_NO_COLOR: '1' },
+      env: { ...process.env, K_NO_COLOR: '1' },
     });
     let out = '';
     child.stdout.on('data', d => { out += d.toString(); });
@@ -85,7 +85,7 @@ console.log('\n[3] REGRESI BUG: auto-route nyuntik /squad tanpa crash');
   const child = spawn(process.execPath, ['index.js'], {
     cwd: ROOT,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, K_SROUTER_AUTOROUTE: '1', K_SROUTER_NO_COLOR: '1' },
+    env: { ...process.env, K_AUTOROUTE: '1', K_NO_COLOR: '1' },
   });
   let out = '';
   child.stdout.on('data', d => { out += d.toString(); });
@@ -97,7 +97,7 @@ console.log('\n[3] REGRESI BUG: auto-route nyuntik /squad tanpa crash');
   await new Promise(r => setTimeout(r, 400));
   const O = strip(out);
 
-  check('autoRoute dari env K_SROUTER_AUTOROUTE=1 kebaca',
+  check('autoRoute dari env K_AUTOROUTE=1 kebaca',
     /Auto-route\s*→\s*squad/.test(O), O.slice(-300));
   check('TIDAK crash "Assignment to constant variable"',
     !/Assignment to constant/.test(O));
@@ -116,7 +116,7 @@ console.log('\n[4] Task simpel TIDAK dirouting ke squad walau autoRoute on');
   const child = spawn(process.execPath, ['index.js'], {
     cwd: ROOT,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, K_SROUTER_AUTOROUTE: '1', K_SROUTER_NO_COLOR: '1' },
+    env: { ...process.env, K_AUTOROUTE: '1', K_NO_COLOR: '1' },
   });
   let out = '';
   child.stdout.on('data', d => { out += d.toString(); });

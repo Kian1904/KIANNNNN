@@ -10,7 +10,7 @@
 //   - Hanya YOLO yang boleh melewatinya, itu pun dengan banner peringatan
 //     eksplisit + harus dipilih manual oleh user (gak bisa jadi default).
 //
-// Written by K-sRouter
+// Written by K'
 
 /** Nama mode yang valid. */
 export const MODES = {

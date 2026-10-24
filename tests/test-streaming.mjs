@@ -7,7 +7,7 @@
 // nyalin src/ + package.json ke tmp, lalu nulis .settings.json di SALINAN itu.
 // .settings.json asli user gak pernah ke-sentuh. .env asli juga gak kebaca.
 //
-// Written by K-sRouter
+// Written by K'
 
 import fs from 'node:fs';
 import os from 'node:os';

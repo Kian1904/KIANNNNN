@@ -1,11 +1,10 @@
 {
-  "name": "k-srouter-cli",
-  "version": "0.2.0",
+  "name": "kian-cli",
+  "version": "0.3.0",
   "type": "module",
   "main": "./index.js",
   "bin": {
-    "kian": "./bin/kian",
-    "ksrouter": "./bin/kian"
+    "kian": "./bin/kian"
   },
   "files": [
     "index.js",

@@ -9,7 +9,7 @@
 //   - kasus jebakan: task simpel yang ada kata "lalu/terus"
 //   - shouldAsk dipasang di kasus ragu, bukan di kasus yakin
 //
-// Written by K-sRouter
+// Written by K'
 
 import { routeTask, collectSignals, describeRouting } from '../src/routing.js';
 

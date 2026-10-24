@@ -7,7 +7,7 @@
 //   - findInCatalog by id (ada / gak ada)
 //   - file duplikat lama (mcp-catalog-index.js) udah gak ada
 //
-// Written by K-sRouter
+// Written by K'
 
 import fs from 'node:fs';
 import path from 'node:path';

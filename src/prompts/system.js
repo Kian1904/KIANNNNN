@@ -1,5 +1,5 @@
 // src/prompts/system.js — System prompt untuk agent ReAct loop
-// Written by K-sRouter
+// Written by K'
 import { AGENT_CONSTITUTION } from '../agent_constitution.js';
 
 const constitutionText = AGENT_CONSTITUTION.length > 0

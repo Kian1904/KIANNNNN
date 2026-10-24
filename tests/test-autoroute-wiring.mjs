@@ -4,7 +4,7 @@
 // Test INI ngebuktiin repl.js beneran MANGGIL heuristik itu di jalur keputusan —
 // kalau wiring-nya dicabut, test ini harus gagal.
 //
-// Written by K-sRouter
+// Written by K'
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -24,8 +24,8 @@ console.log('\n[1] Import & state');
 check('repl.js import routeTask dari routing.js',
   /import\s*\{[^}]*routeTask[^}]*\}\s*from\s*['"]\.\/routing\.js['"]/.test(src));
 check('ada state autoRoute', /let\s+autoRoute\s*=/.test(src));
-check('autoRoute default OFF (harus === "1" buat nyala)',
-  /K_SROUTER_AUTOROUTE\s*===\s*['"]1['"]/.test(src));
+check('autoRoute default OFF (harus readEnv("AUTOROUTE") === "1" buat nyala)',
+  /readEnv\(['"]AUTOROUTE['"]\)\s*===\s*['"]1['"]/.test(src));
 
 console.log('\n[2] Command /route lengkap');
 check('handler /route ada', /startsWith\(['"]\/route['"]\)/.test(src));

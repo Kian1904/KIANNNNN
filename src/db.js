@@ -3,8 +3,18 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 
-const DATA_DIR = path.join(os.homedir(), '.krouter_data');
-const DB_PATH = path.join(DATA_DIR, 'krouter.db');
+// M46: data dir baru `~/.kian_data`. Kalau folder lama `~/.krouter_data` sudah
+// ada dan folder baru belum, pakai yang lama supaya riwayat user gak hilang.
+function resolveDataDir() {
+  const nextDir = path.join(os.homedir(), '.kian_data');
+  const legacyDir = path.join(os.homedir(), '.krouter_data');
+  if (fs.existsSync(nextDir)) return nextDir;
+  if (fs.existsSync(legacyDir)) return legacyDir;
+  return nextDir;
+}
+
+const DATA_DIR = resolveDataDir();
+const DB_PATH = path.join(DATA_DIR, 'kian.db');
 
 let _db = null;
 

@@ -1,5 +1,6 @@
 // M45: event-driven squad UI state + plain renderer.
 // UI tidak memiliki authority atas execution/safety; hanya membaca state/events.
+import { readEnv } from './env.js';
 
 export function createSquadUiState({ task = '', waves = [] } = {}) {
   const agents = waves.flat().map(item => ({
@@ -44,5 +45,7 @@ export function renderPlainSquad(state) {
 }
 
 export function shouldUseInk({ env = process.env, stdout = process.stdout } = {}) {
-  return env.K_SROUTER_UI === 'ink' && Boolean(stdout?.isTTY);
+  const mode = readEnv('UI', { env });
+  if (mode !== 'ink') return false;
+  return Boolean(stdout?.isTTY);
 }

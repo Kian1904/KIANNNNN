@@ -1,6 +1,6 @@
 // tests/test-telegram.mjs — M17: routing, approval via balasan chat,
 // allowlist, dan squad wiring — SEMUA offline (fetch & LLM di-mock).
-// Written by K-sRouter
+// Written by K'
 
 const { createTelegramBot, isApprovalAnswer } = await import('../src/telegram-bot.js');
 

@@ -1,5 +1,5 @@
 // tests/test-squad.mjs — M16: topologicalWaves + executePlan (mock provider).
-// Written by K-sRouter
+// Written by K'
 
 import http from 'http';
 import fs from 'fs';

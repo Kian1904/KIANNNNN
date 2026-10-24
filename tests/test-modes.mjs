@@ -8,7 +8,7 @@
 //     SAFE nanya buat semua
 //   - askApproval Telegram: aturan sama (biar gak beda perilaku)
 //
-// Written by K-sRouter
+// Written by K'
 
 import { MODES, DESTRUCTIVE_ACTIONS, normalizeMode, decide, MODE_DESCRIPTIONS } from '../src/modes.js';
 
@@ -73,7 +73,7 @@ check('ada deskripsi yolo', typeof MODE_DESCRIPTIONS[MODES.YOLO] === 'string' &&
 
 console.log('\n[7] Integrasi askApproval REPL (mode dibaca dari env)');
 {
-  process.env.K_SROUTER_MODE = 'yolo';
+  process.env.K_MODE = 'yolo';
   // repl.js adalah CLI yang langsung jalan; kita baca sumbernya buat mastiin
   // mode gate beneran kepasang di askApproval (bukan cuma di modul modes.js).
   const fs = await import('node:fs');
@@ -89,7 +89,7 @@ console.log('\n[7] Integrasi askApproval REPL (mode dibaca dari env)');
   check('telegram-bot.js panggil decide di makeAskApproval', /const verdict = decide\(approvalMode/.test(tg));
   check('telegram-bot.js punya state approvalMode', /let approvalMode = normalizeMode/.test(tg));
   check('telegram-bot.js punya command /mode', /cmd === 'mode'/.test(tg));
-  delete process.env.K_SROUTER_MODE;
+  delete process.env.K_MODE;
 }
 
 console.log('\n[8] Konsistensi REPL vs Telegram (aturan satu sumber)');

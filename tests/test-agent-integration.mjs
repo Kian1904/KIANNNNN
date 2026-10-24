@@ -6,7 +6,7 @@
 // Tidak ada jaringan eksternal, tidak ada shell yang benar-benar dijalankan
 // (bash diblokir whitelist SEBELUM eksekusi).
 //
-// Written by K-sRouter
+// Written by K'
 
 import http from 'http';
 import fs from 'fs';

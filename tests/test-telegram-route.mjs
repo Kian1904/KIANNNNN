@@ -11,7 +11,7 @@
 //   - executePlan(p, ctx, deps) → approval lewat ctx.askApproval, BUKAN
 //     opsi ketiga bernama onApproval.
 //
-// Written by K-sRouter
+// Written by K'
 
 import { createTelegramBot } from '../src/telegram-bot.js';
 

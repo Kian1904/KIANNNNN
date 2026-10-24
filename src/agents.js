@@ -1,7 +1,7 @@
 // src/agents.js — Agent registry. "Agent" = config, BUKAN class.
 // Nambah role = tambah entry di AGENTS, gak perlu nulis kode loop baru.
 //
-// Written by K-sRouter
+// Written by K'
 
 import { ACTION_FORMAT, SYSTEM_PROMPT } from './prompts/system.js';
 

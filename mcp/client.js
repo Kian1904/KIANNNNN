@@ -84,7 +84,7 @@ export async function discoverTools() {
       try {
         await mcpRequest(conn.url, 'initialize', {
           protocolVersion: '2024-11-05',
-          clientInfo: { name: 'k-srouter', version: '1.0.0' },
+          clientInfo: { name: "K'", version: '1.0.0' },
           capabilities: {}
         }, conn.apiKey);
         const result = await mcpRequest(conn.url, 'tools/list', {}, conn.apiKey);

@@ -35,7 +35,7 @@ export function wrap(text, width) {
 
 export function header(model, tools) {
   const width = w();
-  const line1 = 'K-sRouter  \u00B7  ' + model;
+  const line1 = "K'  \u00B7  " + model;
   const line2 = tools && tools.length ? 'tools: ' + tools.join(', ') : null;
   console.log('');
   console.log(B.tl + B.h.repeat(width - 2) + B.tr);
@@ -179,7 +179,7 @@ export var PROMPT = '  \u2502 > ';
 
 export var SLASH_COMMANDS = [
   { cmd: '/squad',    desc: 'rencana squad → review → eksekusi' },
-  { cmd: '/exit',     desc: 'keluar dari K-sRouter' },
+  { cmd: '/exit',     desc: "keluar dari K'" },
   { cmd: '/mode',     desc: 'mode approval: safe | wellwell | yolo' },
   { cmd: '/route',    desc: 'auto-routing ke squad: on | off | test <task>' },
   { cmd: '/rollback', desc: 'restore file ke snapshot sebelumnya' },

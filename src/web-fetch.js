@@ -123,7 +123,7 @@ export async function fetchWebPage(rawUrl, {
     } catch (err) { return { ok: false, error: 'dns_error', message: err.message, url: current }; }
     const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetchFn(current, { signal: controller.signal, redirect: 'manual', headers: { 'user-agent': 'K-sRouter-research/1.0', accept: 'text/html, text/plain, application/json;q=0.9, */*;q=0.1' } });
+      const res = await fetchFn(current, { signal: controller.signal, redirect: 'manual', headers: { 'user-agent': "Kian-research/1.0", accept: 'text/html, text/plain, application/json;q=0.9, */*;q=0.1' } });
       if ([301, 302, 303, 307, 308].includes(res.status)) {
         const location = res.headers.get('location');
         if (!location) return { ok: false, error: 'redirect_without_location', url: current };

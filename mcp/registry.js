@@ -1,6 +1,6 @@
 /**
  * mcp/registry.js — Plugin registry untuk MCP connections
- * Storage: JSON di ~/.krouter_data/connections.json
+ * Storage: JSON di ~/.kian_data/connections.json (fallback ~/.krouter_data lama)
  * TS-ready: pakai JSDoc untuk type annotations
  */
 
@@ -8,7 +8,17 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-const DATA_DIR = path.join(os.homedir(), '.krouter_data');
+// M46: pakai folder lama kalau ada, biar koneksi MCP hasil setup sebelumnya
+// gak hilang setelah rename.
+function resolveDataDir() {
+  const nextDir = path.join(os.homedir(), '.kian_data');
+  const legacyDir = path.join(os.homedir(), '.krouter_data');
+  if (fs.existsSync(nextDir)) return nextDir;
+  if (fs.existsSync(legacyDir)) return legacyDir;
+  return nextDir;
+}
+
+const DATA_DIR = resolveDataDir();
 const CONNECTIONS_PATH = path.join(DATA_DIR, 'connections.json');
 
 /**

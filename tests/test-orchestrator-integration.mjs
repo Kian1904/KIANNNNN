@@ -1,7 +1,7 @@
 // tests/test-orchestrator-integration.mjs — Integration M15: plan() lewat provider ASLI.
 // Mock provider lokal balikin output LLM BERISIK (prose + fence + thinking) ->
 // plan() harus parse & validate sukses. Backup/restore .settings.json.
-// Written by K-sRouter
+// Written by K'
 
 import http from 'http';
 import fs from 'fs';

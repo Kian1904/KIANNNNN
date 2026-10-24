@@ -9,7 +9,7 @@
 //     (uji: dianggap gagal, cascade lanjut)
 //
 // Zero-dependency (node:http).
-// Written by K-sRouter
+// Written by K'
 
 import http from 'node:http';
 

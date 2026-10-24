@@ -7,7 +7,7 @@
 //   - mode SSE stream  → `http://host:port/mcp?sse=1`  (Content-Type: text/event-stream)
 //
 // Zero-dependency (node:http doang) — konsisten sama repo yang cuma chalk+dotenv.
-// Written by K-sRouter
+// Written by K'
 
 import http from 'node:http';
 

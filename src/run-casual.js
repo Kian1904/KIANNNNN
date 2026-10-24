@@ -2,9 +2,10 @@
 
 import { askWithFallback, fallbackState } from './providers.js';
 import { printBlock, blank } from './ui.js';
+import { readEnv } from './env.js';
 
-// Mode streaming: set KE_SROUTER_STREAM=0 buat matiin (fallback ke print sekali).
-const STREAM_ENABLED = process.env.K_SROUTER_STREAM !== '0';
+// Mode streaming: set K_STREAM=0 buat matiin (fallback ke print sekali).
+const STREAM_ENABLED = readEnv('STREAM') !== '0';
 
 /**
  * Jalankan chat casual (santai) tanpa ReAct loop

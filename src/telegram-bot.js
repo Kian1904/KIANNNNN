@@ -1,4 +1,4 @@
-// src/telegram-bot.js — Jembatan Telegram (mode polling) ke agent K-sRouter.
+// src/telegram-bot.js — Jembatan Telegram (mode polling) ke agent K'.
 //
 // M17 (perombakan): bot ini SEBELUMNYA cuma manggil runTask telanjang —
 // gak nyambung orchestrator (no /agent /plan /squad) DAN crash
@@ -17,7 +17,7 @@
 // Polling (bukan webhook) — sengaja: gak butuh IP publik, tetap jalan
 // di data seluler / Termux.
 //
-// Written by K-sRouter
+// Written by K'
 
 import 'dotenv/config';
 import { pathToFileURL } from 'url';
@@ -32,6 +32,7 @@ import { isDangerous } from './approval.js';
 import { MODES, DESTRUCTIVE_ACTIONS, normalizeMode, decide, MODE_DESCRIPTIONS } from './modes.js';
 import { routeTask, describeRouting } from './routing.js';
 import { createApprovalQueue } from './approval-queue.js';
+import { readEnv } from './env.js';
 
 /** Waktu tunggu jawaban approval sebelum otomatis ditolak (ms). */
 export const APPROVAL_TIMEOUT_MS = 120_000;
@@ -49,7 +50,7 @@ export function isApprovalAnswer(text) {
   return false;
 }
 
-const HELP_TEXT = `🤖 K-sRouter Bot — perintah:
+const HELP_TEXT = `🤖 K' Bot — perintah:
 /agent — lihat agent aktif
 /agent <nama> — pilih agent: ${Object.keys({}).join('')}
 /plan <task> — lihat rencana squad (BELUM eksekusi)
@@ -133,11 +134,11 @@ export function createTelegramBot({
   const sessionAllowed = new Set();
 
   // Mode approval buat sesi bot ini (default SAFE, bisa dari env).
-  let approvalMode = normalizeMode(process.env.K_SROUTER_MODE) || MODES.SAFE;
+  let approvalMode = normalizeMode(readEnv('MODE')) || MODES.SAFE;
 
   // Auto-routing ke squad. Default OFF — samain sama REPL biar gak ada
   // kejutan: task lo tiba-tiba ngejalanin 5 agent cuma karena ada kata "lalu".
-  let autoRoute = process.env.K_SROUTER_AUTOROUTE === '1';
+  let autoRoute = readEnv('AUTOROUTE') === '1';
 
   /** @param {number} chatId @param {string} text */
   async function sendMessage(chatId, text) {

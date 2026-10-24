@@ -16,7 +16,7 @@
 // cuma ngebolehin path di bawah cwd. Pakai /tmp bikin semua tes read gagal
 // karena ACCESS DENIED, dan itu bikin tesnya sendiri yang salah.
 //
-// Written by K-sRouter
+// Written by K'
 
 import fs from 'fs';
 import path from 'path';
@@ -67,12 +67,12 @@ fs.writeFileSync(bigFile, lines.join('\n'));
 
   // ── [4] bash: timeout (env dibaca per-panggilan) ──
   console.log('\n[4] bash — timeout');
-  process.env.K_SROUTER_BASH_TIMEOUT_MS = '1200';
+  process.env.K_BASH_TIMEOUT_MS = '1200';
   const slow = await runCommand('sleep 6');
   check('command kelamaan → ok:false', slow.ok === false, `ok=${slow.ok}`);
   check('ditandai timedOut', slow.timedOut === true, `timedOut=${slow.timedOut}`);
   check('stderr jelasin soal waktu', /waktu/i.test(slow.stderr), JSON.stringify(slow.stderr).slice(0, 90));
-  delete process.env.K_SROUTER_BASH_TIMEOUT_MS;
+  delete process.env.K_BASH_TIMEOUT_MS;
 
   // ── [5] read range: jendela baris ──
   console.log('\n[5] read — jendela baris');

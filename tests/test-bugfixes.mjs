@@ -4,7 +4,7 @@
 //   3. logStep legacy shape {task} + threadId=null gak crash
 //   4. Guard isSafePath ngeblokir tulis ke path terlarang
 // Jalur asli: runTask + mock provider lokal, backup/restore .settings.json.
-// Written by K-sRouter
+// Written by K'
 
 import http from 'http';
 import fs from 'fs';

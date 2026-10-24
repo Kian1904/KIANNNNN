@@ -10,7 +10,7 @@
 //   - Pakai hasil plan() buat dispatch beberapa worker PARALEL (context fresh +
 //     tool whitelist tiap agent) -> aggregate -> jawaban final. Lihat SPEC.md.
 //
-// Written by K-sRouter
+// Written by K'
 
 import { AGENTS, getAgent } from './agents.js';
 import { runTask } from './run-task.js';

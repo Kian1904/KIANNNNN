@@ -10,6 +10,7 @@ import { discoverTools } from '../mcp/client.js';
 import { print, printBlock, printUserMessage, printAssistantMessage, printSystemMessage, header, sep, blank, PROMPT, completer, banner } from './ui.js';
 import { createSquadUiState, applySquadEvent, renderPlainSquad, shouldUseInk } from './squad-ui.js';
 import { startInkSquadUi } from './ink-squad-ui.js';
+import { readEnv } from './env.js';
 import * as tui from './tui.js';
 import { classifyIntent } from './intent.js';
 import { readFileSafe, loadAgentMd } from './utils/fs.js';
@@ -29,11 +30,11 @@ const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:repl]', ...args); };
 const sessionAllowed = new Set();
 
 // Mode approval aktif buat sesi ini (default SAFE — semua minta approval).
-let approvalMode = normalizeMode(process.env.K_SROUTER_MODE) || MODES.SAFE;
+let approvalMode = normalizeMode(readEnv('MODE')) || MODES.SAFE;
 
 // Auto-routing ke squad: DEFAULT OFF. Aktifin pakai /route on.
 // Sengaja opt-in: squad itu N panggilan LLM, gak boleh jalan diam-diam.
-let autoRoute = process.env.K_SROUTER_AUTOROUTE === '1';
+let autoRoute = readEnv('AUTOROUTE') === '1';
 
 async function startREPL() {
   // Initialize TUI state

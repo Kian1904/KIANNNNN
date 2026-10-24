@@ -1,6 +1,6 @@
 // tests/test-orchestrator-plan.mjs — Verifikasi M15: protokol delegasi JSON.
 // parsePlan / validatePlan / plan (plan pakai askFn mock, tanpa network).
-// Written by K-sRouter
+// Written by K'
 
 import { parsePlan, validatePlan, plan, MAX_PLAN_TASKS } from '../src/orchestrator.js';
 

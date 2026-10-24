@@ -1,5 +1,5 @@
 // tests/test-agents.mjs — Verifikasi PoC multi-agent (registry, prompt, whitelist, routing).
-// Written by K-sRouter
+// Written by K'
 
 import { AGENTS, getAgent, validateAgent, composeAgentPrompt, filterToolsForAgent, KNOWN_ACTIONS } from '../src/agents.js';
 import { SYSTEM_PROMPT, ACTION_FORMAT } from '../src/prompts/system.js';

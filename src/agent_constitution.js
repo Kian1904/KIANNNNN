@@ -1,4 +1,4 @@
-// Written by K-sRouter
+// Written by K'
 /**
  * @file This file contains the core, static instructions and principles that
  *       guide the agent's operation, as defined in the project's SPEC.md
