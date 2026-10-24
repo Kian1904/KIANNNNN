@@ -703,7 +703,8 @@ K_SROUTER_UI=ink node index.js
 ```
 
 Tes M45: squad UI state **6 pass**, UI mode **3 pass**, full suite
-**668 pass, 0 fail, 41 file**.
+**668 pass, 0 fail, 41 file**. Run suite diulang tiga kali untuk memastikan
+hasil runtime autoroute tidak flaky; ketiganya hijau.
 
 ## M44 — Self-Healing Harness & Strict Verification (2026-10-22)
 
