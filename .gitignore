@@ -12,3 +12,6 @@ gha-creds-*.json
 
 #config json
 .settings.json
+
+# temp env hasil test (dibikin tiap run suite, jangan sampai ke-commit)
+.tmp-env-*/
