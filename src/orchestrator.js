@@ -415,7 +415,13 @@ export async function executePlan(planResult, ctx, deps = {}) {
       const instruction = buildWorkerInstruction(task, originalInstruction, depSummary);
       const summary = await runTaskFn(
         instruction, agentMd, availableTools, threadId,
-        stats, trackProvider, trackAction, isDangerous, askApproval, agent
+        stats, trackProvider, trackAction, isDangerous, askApproval,
+        // M47: worker squad TIDAK memakai kontrak hasil parsing brief-nya sendiri.
+        // Brief itu turunan internal (buildWorkerInstruction), bukan instruksi user
+        // mentah, jadi menerapkan gerbang kontrak di sini akan menghukum worker
+        // karena kalimat scaffolding kita sendiri. Kontrak user tetap berlaku di
+        // level squad (lihat contractOfSquad di bawah) dan di task top-level.
+        agent ? { ...agent, contractEnabled: false } : null
       );
       return { task, summary };
     }));

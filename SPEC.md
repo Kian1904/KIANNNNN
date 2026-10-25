@@ -678,6 +678,99 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
 
+## M47 — Task Contract: goal, constraint, acceptance criteria (2026-10-25)
+
+Sebelum M47, "selesai" hanya berarti: summary ada + semua history `verified !== false`.
+Model bisa menulis summary meyakinkan tanpa benar-benar mengerjakan maksud user.
+
+M47 menambahkan kontrak task yang dibangun **deterministik dari instruksi user**
+(tanpa LLM, tanpa network), lalu dipakai sebagai gerbang `ACTION: done`.
+
+### Komponen
+
+`src/task-contract.js`:
+
+- `extractGoal(instruction)` — ambil inti instruksi, buang basa-basi pembuka,
+  dibatasi 400 karakter.
+- `extractConstraints(instruction)` — klasifikasi tiga jenis constraint:
+  - `prohibition` (`jangan`, `gak boleh`, `tanpa`);
+  - `requirement` (`wajib`, `harus`, `mesti`);
+  - `limit` (`maksimal`, `minimal`, `paling banyak`).
+- `deriveAcceptanceCriteria({instruction, constraints})` — turunkan kriteria
+  sesuai isi instruksi: test, file, instalasi, riset, diagnosis, pengukuran.
+  Setiap constraint otomatis jadi kriteria.
+- `assessRisk(instruction)` — `low`/`medium`/`high`.
+- `buildTaskContract(instruction)` — gabungan semuanya.
+- `contractBlocksCompletion(contract, results)` — gerbang: `completed` tanpa
+  `evidence` tetap dianggap belum terbukti.
+- `renderContract(contract)` — format teks untuk prompt/CLI/Telegram.
+
+`evidenceForContract(history, contract)` di `src/run-task.js` memetakan history
+aksi aktual ke kriteria. **Hanya `verified === true` yang dihitung sebagai bukti.**
+
+### Wiring ke jalur produksi
+
+1. Kontrak dibangun di awal `runTask`.
+2. Blok `## KONTRAK TASK (WAJIB DIPENUHI)` disuntik ke system prompt sebelum
+   model mulai, jadi model tahu definisi selesai sejak awal.
+3. Saat model memilih `ACTION: done`, dua gerbang dijalankan berurutan:
+   - `verifyCompletion` (M24) — summary ada, tidak ada aksi gagal;
+   - `contractBlocksCompletion` (M47) — semua kriteria punya bukti.
+4. Ditolak → `user_condition` berisi kriteria yang belum terbukti, model wajib
+   melakukan aksi nyata, bukan mengulang klaim.
+
+### Bug nyata yang ketangkep M47
+
+**1. Loop limit return `undefined`.**
+Saat batas langkah tercapai, `runTask` dulu `return undefined`. Pemanggil tidak
+bisa membedakan "gagal" dari "kosong". Sekarang mengembalikan laporan eksplisit:
+
+```text
+Task BELUM selesai: batas 25 langkah tercapai tanpa memenuhi kontrak.
+Aksi terverifikasi: 3.
+Kriteria belum terbukti:
+- Perintah test dijalankan dan exit code 0 dibuktikan dari output aktual
+Jangan anggap task ini berhasil.
+```
+
+**2. Scaffolding internal terbaca sebagai constraint user.**
+`buildWorkerInstruction` menambahkan "Jangan kerjakan bagian lain" — dan
+`extractConstraints` sempat membacanya sebagai larangan user, sehingga worker
+squad memblokir dirinya sendiri (test M16 handoff jadi merah). Perbaikan:
+
+- `SCAFFOLDING_PATTERNS` membuang kalimat internal sebelum ekstraksi;
+- worker squad memakai `contractEnabled: false` — brief worker adalah turunan
+  internal, bukan instruksi user mentah.
+
+**3. Larangan tidak boleh menaikkan risk.**
+"Rapihin auth tapi **jangan hapus** test" sempat dinilai `risk: high` karena
+kata `hapus`. `stripProhibitionClauses` memperbaiki ini.
+
+**4. Test autoroute flaky (pre-existing).**
+`test-autoroute-runtime.mjs` bergantung pada `.settings.json` user; kalau port
+mock sudah mati, muncul `fetch failed` → `Boot failed` palsu. Diverifikasi
+flaky dengan `git stash` **sebelum** perubahan M47. Sekarang test memakai mock
+HTTP lokal sendiri + `HOME` terisolasi, dan me-restore settings di akhir.
+
+### Bukti verifikasi
+
+```text
+test-task-contract.mjs          : 41 pass, 0 fail
+test-evidence-contract.mjs      : 13 pass, 0 fail
+test-contract-gate-integration  : 10 pass, 0 fail  (lewat runTask asli)
+test-squad.mjs                  : 12 pass, 0 fail  (regresi scaffolding pulih)
+test-autoroute-runtime.mjs      : 17 pass, 0 fail  (dulu 15/2)
+full suite                      : 754 pass, 0 fail | 46 file
+```
+
+Suite dijalankan dua kali berturut-turut dengan hasil identik.
+
+Uji integrasi membuktikan dua perilaku di jalur produksi:
+
+- model yang langsung `done` tanpa kerja → **ditolak**, loop lanjut ke aksi nyata;
+- model yang `done` terus tanpa bukti → hasil akhir **"Task BELUM selesai"**,
+  bukan klaim sukses.
+
 ## M46 — Identity Unification: nama jadi `K'` (2026-10-22)
 
 Seluruh identitas proyek diganti dari `K-sRouter`/`k-srouter-cli` menjadi `K'`.

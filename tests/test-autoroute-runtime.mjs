@@ -14,9 +14,19 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
+const SETTINGS = join(ROOT, '.settings.json');
+
+/** Siapkan HOME terisolasi + settings mati supaya test tidak bergantung config user. */
+function makeIsolatedEnv() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kian-ar-'));
+  return { home, env: { ...process.env, HOME: home, K_NO_COLOR: '1' } };
+}
 
 let pass = 0, fail = 0;
 function check(label, cond, extra = '') {
@@ -82,10 +92,29 @@ console.log('\n[3] REGRESI BUG: auto-route nyuntik /squad tanpa crash');
   // ke dia meledak. Kita set autoRoute on lewat env, masukin task kompleks.
   // Kita cegah LLM beneran jalan dengan timeout pendek — yang penting:
   // output HARUS nunjukin "Auto-route → squad" dan TIDAK "Assignment to constant".
+  // Siapkan provider mock LOKAL yang hidup, supaya REPL punya tujuan nyata dan
+  // test tidak bergantung pada .settings.json milik user (yang bisa menunjuk
+  // port mati -> "fetch failed" -> "Boot failed" palsu).
+  const { default: http } = await import('node:http');
+  const mockSrv = await new Promise(resolve => {
+    const s = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', c => body += c);
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'REASONING: rencana\nACTION: done\nSUMMARY: rencana squad disusun.' } }] }));
+      });
+    });
+    s.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  const realSettings = fs.existsSync(SETTINGS) ? fs.readFileSync(SETTINGS, 'utf8') : null;
+  fs.writeFileSync(SETTINGS, JSON.stringify([{ name: 'mock', baseUrl: `http://127.0.0.1:${mockSrv.address().port}/v1`, apiKey: 'x', model: 'm', active: true }]));
+
+  const isolated = makeIsolatedEnv();
   const child = spawn(process.execPath, ['index.js'], {
     cwd: ROOT,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, K_AUTOROUTE: '1', K_NO_COLOR: '1' },
+    env: { ...isolated.env, K_AUTOROUTE: '1' },
   });
   let out = '';
   child.stdout.on('data', d => { out += d.toString(); });
@@ -95,6 +124,10 @@ console.log('\n[3] REGRESI BUG: auto-route nyuntik /squad tanpa crash');
   await new Promise(r => setTimeout(r, 6000));
   try { child.kill('SIGKILL'); } catch {}
   await new Promise(r => setTimeout(r, 400));
+  mockSrv.close();
+  if (realSettings !== null) fs.writeFileSync(SETTINGS, realSettings, 'utf8');
+  else if (fs.existsSync(SETTINGS)) fs.unlinkSync(SETTINGS);
+  try { fs.rmSync(isolated.home, { recursive: true, force: true }); } catch {}
   const O = strip(out);
 
   check('autoRoute dari env K_AUTOROUTE=1 kebaca',

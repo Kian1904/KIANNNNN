@@ -19,6 +19,7 @@ import { preflightEnvironment } from './environment.js';
 import { createTaskBudget } from './task-budget.js';
 import { delegateTask } from './delegate-cli.js';
 import { createTaskState, allCompleted } from './task-state.js';
+import { buildTaskContract, contractBlocksCompletion, renderContract } from './task-contract.js';
 import { readEnv } from './env.js';
 import { packetFromHistory, buildEvidenceFallback } from './research-engine.js';
 import { compactResearchContext } from './research-context.js';
@@ -28,6 +29,68 @@ const MAX_LOOPS = parseInt(process.env.MAX_LOOPS) || 25;
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:task]', ...args); };
+
+/**
+ * M47: petakan history action aktual ke acceptance criteria kontrak.
+ *
+ * PRINSIP: hanya tindakan yang SUDAH terverifikasi (verified === true) yang
+ * dihitung sebagai bukti. Klaim model, ringkasan, dan aksi yang gagal TIDAK
+ * pernah menghasilkan bukti. Fungsi ini sengaja konservatif: lebih baik
+ * menolak done daripada meloloskan klaim palsu.
+ *
+ * @param {Array} history - history action dari loop runTask
+ * @param {object} contract - hasil buildTaskContract()
+ * @returns {Array<{id:string,status:string,evidence:string}>}
+ */
+export function evidenceForContract(history = [], contract = null) {
+  const items = Array.isArray(history) ? history : [];
+  const verified = items.filter(h => h && h.verified === true);
+  const failed = items.filter(h => h && h.verified === false);
+
+  const hasEditVerified = verified.some(h => ['edit', 'write', 'append', 'mkdir'].includes(h.action));
+  const hasBashOk = verified.some(h => h.action === 'bash');
+  const hasWebEvidence = verified.some(h => ['web_search', 'web_fetch'].includes(h.action));
+  const hasReadBack = verified.some(h => ['read', 'list_dir'].includes(h.action));
+  const hasAnyFailure = failed.length > 0;
+
+  const results = [];
+  const acceptance = Array.isArray(contract?.acceptance) ? contract.acceptance : [];
+
+  for (const criterion of acceptance) {
+    let evidence = '';
+
+    if (criterion.source === 'constraint') {
+      // Constraint dibuktikan lewat dua hal: output nyata yang menunjukkan
+      // kepatuhan, DAN tidak ada pelanggaran tercatat di history.
+      const violation = failed.find(h => h.error && /constraint|dilarang|ditolak|blocked/i.test(String(h.error)));
+      if (hasAnyFailure && violation) continue;
+      if (hasEditVerified || hasBashOk) {
+        evidence = `aksi terverifikasi tercatat (${verified.length}) tanpa pelanggaran constraint`;
+      }
+    } else if (criterion.source === 'verification') {
+      if (/test/i.test(criterion.text) && hasBashOk) evidence = 'perintah test/bash sukses dengan exit code 0';
+      if (/file|berkas/i.test(criterion.text) && hasEditVerified) evidence = 'file berubah dan isinya dibaca ulang';
+      if (/instalasi/i.test(criterion.text) && hasBashOk) evidence = 'command instalasi sukses';
+    } else if (criterion.source === 'measurement') {
+      if (hasBashOk && hasReadBack) evidence = 'angka dihitung dari output command dan pembacaan file aktual';
+      else if (hasBashOk) evidence = 'angka dihitung dari output command aktual';
+    } else if (criterion.source === 'evidence') {
+      if (hasWebEvidence) evidence = 'sumber web aktual terbaca dan terverifikasi';
+    } else if (criterion.source === 'diagnosis') {
+      if (hasBashOk) evidence = 'output command aktual dipakai sebagai bukti diagnosis';
+    } else {
+      // baseline: butuh minimal satu aksi nyata terverifikasi.
+      if (hasEditVerified || hasBashOk || hasWebEvidence || hasReadBack) {
+        evidence = `aksi nyata terverifikasi (${verified.length} aksi lolos pemeriksaan)`;
+      }
+    }
+
+    if (evidence) results.push({ id: criterion.id, status: 'completed', evidence });
+    else results.push({ id: criterion.id, status: 'pending' });
+  }
+
+  return results;
+}
 
 /**
  * Jalankan agentic otonom loop
@@ -46,6 +109,13 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
   if (stats) stats.tasks++;
   const history = [];
   let taskState = null;
+  // M47: kontrak task dibangun deterministik dari instruksi user — bukan dari
+  // jawaban model. Ini yang jadi gerbang "selesai": klaim done harus punya
+  // bukti untuk setiap acceptance criteria.
+  const contract = agentConfig && agentConfig.contractEnabled === false
+    ? { goal: '', constraints: [], acceptance: [], risk: 'low', instruction: '' }
+    : buildTaskContract(instruction);
+  const contractResults = new Map();
   let lastTarget = null;
   const recentMemory = getRecentDecisions(5);
   let webSearchCount = 0;
@@ -72,6 +142,15 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     maxProviderCalls: parseInt(process.env.MAX_LOOPS) ? Math.min(MAX_LOOPS * 3, 30) : 15,
   });
   let systemPromptOverride = agentConfig ? composeAgentPrompt(agentConfig, agentMd) : null;
+
+  // M47: kontrak task disuntik ke system prompt supaya model tahu definisi
+  // selesai SEBELUM mulai, bukan dikoreksi belakangan setelah kerja sia-sia.
+  if (contract.acceptance.length > 0) {
+    const contractText = renderContract(contract);
+    const contractBlock = `\n\n## KONTRAK TASK (WAJIB DIPENUHI)\n${contractText}\n\nACTION: done HANYA diterima kalau semua acceptance criteria di atas punya bukti aktual.\nKalau ada kriteria yang belum bisa dibuktikan, jangan pilih done — lakukan aksi yang membuktikannya.`;
+    systemPromptOverride = `${systemPromptOverride || ''}${contractBlock}`;
+    print('info', `Kontrak task: ${contract.acceptance.length} kriteria (risk: ${contract.risk})`);
+  }
   const toolsForAgent = agentConfig
     ? filterToolsForAgent(availableTools, agentConfig.mcpTools)
     : availableTools;
@@ -177,6 +256,19 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         print('error', `Belum boleh selesai: ${completion.reason}`);
         // Jangan percaya klaim done. Minta model satu langkah koreksi/verifikasi.
         systemPromptOverride = `${systemPromptOverride || ''}\n\n[SISTEM VERIFIER: Klaim selesai DITOLAK: ${completion.reason}. Jangan ACTION: done dulu. Periksa ulang hasil aksi terakhir dan pilih aksi verifikasi/perbaikan yang konkret.]`;
+        continue;
+      }
+      // M47: gerbang kontrak. Bukti diambil dari hasil ACTUAL yang sudah tercatat
+      // di history (verified:true), bukan dari narasi model.
+      const contractGate = contractBlocksCompletion(contract, evidenceForContract(history, contract));
+      if (contractGate.blocked) {
+        const pendingText = contractGate.pending.slice(0, 4).join(' | ');
+        print('blocked', `Klaim selesai DITOLAK — ${contractGate.reason}.`);
+        contractGate.pending.slice(0, 4).forEach(t => printBlock(`• ${t}`, 2));
+        history.push({
+          action: 'user_condition',
+          condition: `[SISTEM: ACTION done DITOLAK oleh kontrak task. ${contractGate.reason}: ${pendingText}. Kamu WAJIB membuktikan kriteria ini dengan aksi nyata (bukan klaim) sebelum done.]`,
+        });
         continue;
       }
       actionIndicator('done');
@@ -722,8 +814,31 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
   }
 
   print('stop', `Sampai batas ${maxLoops} langkah tanpa selesai.`);
+
+  // M47: batas langkah BUKAN keberhasilan. Kembalikan laporan eksplisit yang
+  // menyebut kriteria belum terbukti, supaya pemanggil (REPL/Telegram/squad)
+  // tidak bisa salah menganggap task beres. Sebelumnya fungsi ini return
+  // undefined — permukaan klaim palsu.
+  const pendingCriteria = contractBlocksCompletion(
+    contract,
+    evidenceForContract(history, contract)
+  );
+  const verifiedCount = history.filter(h => h.verified === true).length;
+  const report = [
+    `Task BELUM selesai: batas ${maxLoops} langkah tercapai tanpa memenuhi kontrak.`,
+    `Aksi terverifikasi: ${verifiedCount}.`,
+    pendingCriteria.pending.length
+      ? `Kriteria belum terbukti:\n${pendingCriteria.pending.map(t => `- ${t}`).join('\n')}`
+      : '',
+    'Jangan anggap task ini berhasil. Lanjutkan dari langkah terakhir atau perjelas instruksinya.',
+  ].filter(Boolean).join('\n');
+
+  printBlock(report);
   if (threadId) {
-    logStep({ threadId, role: 'assistant', content: `Reached loop limit of ${maxLoops} without completing task.`, actionType: 'stop', reasoning: 'Loop limit reached' });
+    logStep({ threadId, role: 'assistant', content: report, actionType: 'stop', reasoning: 'Loop limit reached', verified: false });
+  } else {
+    logStep({ task: instruction, actionType: 'stop', detail: { verified: verifiedCount, pending: pendingCriteria.pending }, reasoning: 'Loop limit reached', verified: false });
   }
   blank();
+  return report;
 }
