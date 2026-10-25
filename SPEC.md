@@ -678,6 +678,161 @@ isSafePath() di lib/utils/fs.js sudah diperbaiki dengan path containment + block
 **[RESOLVED] Provider config hardcode di providers.js:**
 Sekarang dynamic dari settings.json via providers-registry.js dan /auth command.
 
+## M48 — Task Journal: lifecycle + crash-safe state (2026-10-25)
+
+Sebelum M48, agent berhenti tanpa jejak yang bisa dibaca ulang. Kalau Termux
+dibunuh Android di tengah task, semuanya hilang dan tidak ada cara tahu sampai
+mana pekerjaan sudah jalan.
+
+M48 menambahkan journal per task: **append-only JSONL**, bukan SQLite.
+
+Kenapa JSONL:
+
+- baris terakhir boleh terpotong saat proses dibunuh — reader skip baris rusak
+  dan tetap dapat state valid dari baris sebelumnya;
+- tidak perlu lock, tidak ada migration;
+- gampang di-grep dan dihapus per task.
+
+### `src/task-journal.js`
+
+- `TASK_STATUS` — 11 status: `queued`, `planning`, `awaiting_approval`,
+  `running`, `blocked`, `retrying`, `verifying`, `completed`, `failed`,
+  `cancelled`, `paused`.
+- `canTransition(from, to)` — matriks transisi eksplisit. Status terminal
+  (`completed`/`failed`/`cancelled`) **tidak pernah** bisa dibangunkan.
+- `redactSecrets(value)` — redaksi rekursif untuk `sk-`, `gsk_`, `oc_sk_`,
+  `ghp_`, `xox*`, `Bearer`, dan pola `*_KEY`/`*_TOKEN`/`*_SECRET`. Nama variabel
+  dipertahankan supaya jejak audit tetap berguna.
+- `createJournal` / `appendEntry` / `readJournal` / `replayJournal` /
+  `taskSummaryFromJournal` / `listTaskFiles`.
+- Lokasi: `~/.kian_data/tasks/<taskId>.jsonl`.
+
+### Wiring ke `runTask`
+
+- Journal dibuat di awal task dengan goal + meta (agent, cwd, threadId, risk).
+- `history.push` dibungkus jadi `pushHistory()` **sekali**, sehingga semua ~46
+  jalur aksi tercatat tanpa menyisipkan kode journal di tiap call site.
+- Status terminal dicatat: `completed` (dengan bukti per kriteria) atau
+  `failed` (dengan alasan + kriteria pending).
+- Kegagalan tulis journal **tidak pernah** mematikan task.
+- `K_JOURNAL=0` mematikan journal.
+
+### Bukti
+
+```text
+test-task-journal.mjs             : 41 pass, 0 fail
+test-task-journal-integration.mjs : 11 pass, 0 fail
+```
+
+Integrasi membuktikan lewat `runTask` asli: file journal benar-benar dibuat,
+aksi tercatat, status akhir `completed` saat sukses dan `failed` saat loop
+habis, dan secret `sk-...` tidak pernah masuk file journal.
+
+## M49 — Resume & Crash Recovery (2026-10-25)
+
+`src/task-resume.js`:
+
+- `isResumable(filePath)` — hanya task non-terminal dengan jejak journal.
+- `planResume(filePath)` — membaca kondisi dari journal, bukan tebakan:
+  `completedActions`, `failedActions`, `metCriteria`, `pendingCriteria`,
+  `nextStep`, `status`, `goal`.
+- `buildResumeInstruction(plan)` — instruksi resume yang **wajib** menyebut apa
+  yang sudah selesai supaya agent tidak mengulang dari nol.
+
+Aturan yang dipegang:
+
+- aksi yang sudah `verified: true` **tidak pernah** disarankan ulang;
+- langkah berikutnya memprioritaskan perbaikan kegagalan sebelumnya, lalu
+  membuktikan kriteria yang belum terpenuhi;
+- task terminal ditolak dengan alasan eksplisit.
+
+### Bug nyata yang ketangkep
+
+Test integrasi crash-recovery awalnya merah `found=0`. Penyebabnya **bukan**
+logika resume, tapi dua kesalahan di test itu sendiri:
+
+1. `spawn(process.execPath, ['index.js'])` dengan `cwd` folder temp → `index.js`
+   dicari di folder temp → `MODULE_NOT_FOUND`. Diperbaiki pakai path absolut.
+2. Mock provider menjawab semua request terlalu cepat, jadi task selesai
+   (`completed`) sebelum `SIGKILL` sempat dikirim. Diperbaiki: request pertama
+   dijawab, request kedua **di-hang** permanen, sehingga task benar-benar
+   terpotong di tengah.
+
+Bukti:
+
+```text
+test-task-resume.mjs             : 30 pass, 0 fail
+test-task-resume-integration.mjs : 13 pass, 0 fail
+```
+
+Integrasi melakukan crash sungguhan: child process di-`SIGKILL` di tengah task,
+journal tetap valid dan non-terminal, `planResume` bisa membaca kondisi
+pasca-crash, dan task terminal menolak resume.
+
+## M50 — Recovery Engine (2026-10-25)
+
+Sebelum M50, semua error dilempar ke model sebagai teks mentah. Akibatnya agent
+bisa (a) retry error permanen, (b) retry aksi destruktif, (c) memanggil provider
+yang sedang cooldown, (d) loop sampai batas langkah.
+
+`src/recovery.js` memisahkan keputusan recovery dari reasoning:
+
+- `classifyError()` — 11 jenis: `syntax`, `test_failure`, `rate_limit`,
+  `timeout`, `network`, `permission`, `not_found`, `approval_denied`,
+  `constraint`, `provider`, `unknown`.
+- `decideRecovery()` — mengembalikan `retry` / `switch_provider` / `replan` /
+  `stop` beserta `delayMs` (backoff 250ms→4000ms) dan alasan.
+- `buildRecoveryHint()` — hint spesifik per jenis error, supaya model
+  memperbaiki **penyebab**, bukan mengulang aksi yang sama.
+
+Kebijakan yang ditegakkan:
+
+| Kondisi | Keputusan |
+| --- | --- |
+| approval ditolak | `stop` — retry = melawan user |
+| constraint dilanggar | `replan` — pendekatan harus diubah |
+| permission ditolak | `stop` — retry tidak mengubah izin |
+| aksi destruktif gagal | `stop` — tidak auto-retry |
+| rate limit + cooldown | `switch_provider` |
+| jenis error sama berulang | `replan` |
+| percobaan habis | `stop` dengan alasan |
+| error tak dikenal | satu retry, lalu `stop` |
+
+### Bug nyata yang ketangkep — dan ini yang penting
+
+Hint recovery **tidak pernah sampai ke model**. Di `buildHistoryText`
+(`src/plan.js`), cabang `if (!h.approved)` dicek **sebelum** cabang
+`user_condition`. Karena entry `user_condition` tidak punya field `approved`,
+semua hint recovery tercetak sebagai:
+
+```text
+Langkah 2: BASH "undefined" — DITOLAK user
+```
+
+Artinya seluruh mekanisme koreksi (M44 strict error injection, M47 contract
+gate, M50 recovery hint) **tidak pernah terbaca model**. Diperbaiki dengan
+memindahkan penanganan `user_condition` dan `note` ke atas cabang penolakan.
+
+Bukti:
+
+```text
+test-recovery.mjs             : 36 pass, 0 fail
+test-recovery-integration.mjs :  5 pass, 0 fail
+test-history-text.mjs         : 11 pass, 0 fail
+```
+
+Integrasi membuktikan: bash gagal memicu hint `[RECOVERY: ...]` yang benar-benar
+terkirim ke provider, dan kegagalan berulang menghentikan task lebih awal
+(bukan loop 25 langkah) dengan laporan yang menyebut recovery engine.
+
+### Verifikasi gabungan M47–M50
+
+```text
+full suite : 901 pass, 0 fail | 53 file
+```
+
+Suite dijalankan **lima kali berturut-turut** dengan hasil identik.
+
 ## M47 — Task Contract: goal, constraint, acceptance criteria (2026-10-25)
 
 Sebelum M47, "selesai" hanya berarti: summary ada + semua history `verified !== false`.

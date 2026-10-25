@@ -85,14 +85,22 @@ export function buildHistoryText(history) {
       const dest = h.dest ? ` → ${h.dest}` : '';
       return `Langkah ${i + 1}: ${h.action.toUpperCase()} ${h.target}${dest} — ${h.approved ? 'diterapkan' : 'DITOLAK user'}`;
     }
+    // M50 BUGFIX: user_condition dan note HARUS dicek sebelum cabang `!h.approved`.
+    // Sebelumnya entry user_condition (yang tidak punya field `approved`) jatuh ke
+    // cabang penolakan dan tercetak sebagai `BASH "undefined" — DITOLAK user`,
+    // sehingga hint recovery tidak pernah sampai ke model.
+    if (h.action === 'user_condition') {
+      return `Langkah ${i + 1}: [USER CONDITION] "${h.condition}" — agent wajib mempertimbangkan ini`;
+    }
+    if (h.action === 'note') {
+      return `Langkah ${i + 1}: [CATATAN] "${h.text}"`;
+    }
     if (!h.approved) {
-      return `Langkah ${i + 1}: BASH "${h.command}" — DITOLAK user`;
+      const cmd = h.command ? `BASH "${h.command}"` : `${String(h.action || 'aksi').toUpperCase()}`;
+      return `Langkah ${i + 1}: ${cmd} — DITOLAK user`;
     }
     if (h.action === 'remember') {
       return `Langkah ${i + 1}: REMEMBER ${h.key} = "${h.value}"`;
-    }
-    if (h.action === 'user_condition') {
-      return `Langkah ${i + 1}: [USER CONDITION] "${h.condition}" — agent wajib mempertimbangkan ini`;
     }
     if (h.action === 'mcp_call') {
       const truncated = h.result.length > 500 ? `${h.result.slice(0, 500)}... [truncated]` : h.result;
