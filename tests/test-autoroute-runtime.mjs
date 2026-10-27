@@ -37,7 +37,7 @@ function check(label, cond, extra = '') {
 /** Jalanin REPL buat beberapa baris input, balikin stdout+stderr mentah.
  *  PENTING: kasih jeda antar baris. REPL pakai TUI yang nge-overwrite baris,
  *  jadi kalau semua input dikirim sekaligus cuma baris pertama yang diproses. */
-async function runREPL(lines, { settleMs = 900, timeoutMs = 30000 } = {}) {
+async function runREPL(lines, { settleMs = 3000, timeoutMs = 30000 } = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['index.js'], {
       cwd: ROOT,
@@ -51,7 +51,7 @@ async function runREPL(lines, { settleMs = 900, timeoutMs = 30000 } = {}) {
     child.on('close', () => { clearTimeout(timer); resolve(out); });
 
     (async () => {
-      await new Promise(r => setTimeout(r, 1800)); // tunggu banner + prompt siap
+      await new Promise(r => setTimeout(r, 3000)); // tunggu banner + prompt siap
       for (const line of lines) {
         child.stdin.write(line + '\n');
         await new Promise(r => setTimeout(r, settleMs));
@@ -119,7 +119,7 @@ console.log('\n[3] REGRESI BUG: auto-route nyuntik /squad tanpa crash');
   let out = '';
   child.stdout.on('data', d => { out += d.toString(); });
   child.stderr.on('data', d => { out += d.toString(); });
-  await new Promise(r => setTimeout(r, 2500));
+  await new Promise(r => setTimeout(r, 3000));
   child.stdin.write('riset cara kerja debounce lalu bikin implementasinya\n');
   await new Promise(r => setTimeout(r, 6000));
   try { child.kill('SIGKILL'); } catch {}
@@ -154,7 +154,7 @@ console.log('\n[4] Task simpel TIDAK dirouting ke squad walau autoRoute on');
   let out = '';
   child.stdout.on('data', d => { out += d.toString(); });
   child.stderr.on('data', d => { out += d.toString(); });
-  await new Promise(r => setTimeout(r, 2500));
+  await new Promise(r => setTimeout(r, 3000));
   // Task simpel + perintah /mode → TIDAK boleh ke squad.
   child.stdin.write('/mode\n');
   await new Promise(r => setTimeout(r, 3000));
