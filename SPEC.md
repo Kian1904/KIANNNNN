@@ -932,6 +932,80 @@ Bukti: `test-task-progress.mjs` **34 pass**.
 full suite : 1182 pass, 0 fail | 64 file
 ```
 
+## M61 — Cost/Token Budget Engine (2026-10-25)
+
+Agent harus bisa kontrol biaya. `src/budget-engine.js`:
+
+- `createBudget()` — set limit token/cost/provider-calls
+- `trackUsage()` — akumulasi pemakaian real-time
+- `isOverBudget()` — cek apakah melebihi limit
+- `getBudgetReport()` — laporan pemakaian (tokens, cost, calls)
+- `estimateCost()` — hitung biaya dari input/output tokens + harga per 1K
+
+`tests/test-budget-engine.mjs` — **25 pass, 0 fail.**
+
+## M62 — Environment Intelligence (2026-10-25)
+
+Agent harus tau kondisi sekitar. `src/env-intel.js`:
+
+- `detectEnvironment()` — OS, arch, node version, cwd, free disk, memory, CPUs
+- `describeEnvironment()` — human-readable format
+- `getFreeDisk()` — ruang disk tersisa (MB)
+- `getNodeVersion()` — versi Node.js
+
+`tests/test-env-intel.mjs` — **11 pass, 0 fail.**
+
+## M63 — CLI Command Registry (2026-10-25)
+
+Semua command terdaftar di satu tempat. `src/command-registry.js`:
+
+- `COMMANDS` — 21 command (/squad, /plan, /agent, /mode, /route, /rollback, /model, /usage, /connect, /auth, /status, /history, /stop, /resume, /retry, /replan, /save, /load, /reset, /help, /exit)
+- `isRegisteredCommand()` — validasi command
+- `getCommandList()` — daftar lengkap
+
+## M64 — Model Capability Routing (2026-10-25)
+
+Pilih model berdasarkan jenis task. `src/model-router.js`:
+
+- `MODEL_CAPABILITIES` — 4 kategori: coding, research, casual, review
+- `pickBestModel()` — cari model terbaik untuk task type
+- `routeByCapability()` — deteksi jenis task dari instruksi, pilih model
+
+`tests/test-command-router.mjs` (M63+M64) — **21 pass, 0 fail.**
+
+## M65 — Observability/Tracing (2026-10-25)
+
+Trace ID per task, timeline, export. `src/tracer.js`:
+
+- `createTrace()` — trace dengan taskId, label, events
+- `logEvent()` — log action/decision dengan timestamp
+- `getTraceReport()` — laporan trace (events count, total duration)
+- `exportTrace()` — export JSON untuk debugging
+
+## M66 — MCP Health Check (2026-10-25)
+
+Production readiness untuk MCP. `src/mcp-health.js`:
+
+- `validateServerConfig()` — validasi name, url, timeout
+- `healthCheck()` — ping server MCP (up/down + error)
+- `formatHealthReport()` — format status semua server
+
+## M67 — Install/Upgrade Hardening (2026-10-25)
+
+Validasi instalasi. `src/install-check.js`:
+
+- `validateInstall()` — cek file wajib ada
+- `checkDependencies()` — cek binary terpasang (node, npm, dll)
+- `getInstallReport()` — laporan instalasi
+
+`tests/test-observability-mcp-install.mjs` (M65+M66+M67) — **19 pass, 0 fail.**
+
+### Verifikasi gabungan M61–M67
+
+```text
+full suite : 1258 pass, 0 fail | 68 file
+```
+
 ## M55 — Shared Artifact Registry (2026-10-25)
 
 Worker sekarang bisa berbagi artifact melalui registry terpusat. Researcher
