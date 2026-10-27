@@ -23,6 +23,7 @@ import { buildTaskContract, contractBlocksCompletion, renderContract } from './t
 import { TASK_STATUS, createJournal, appendEntry, readJournal, replayJournal, taskPath, defaultJournalDir } from './task-journal.js';
 import { decideRecovery, buildRecoveryHint } from './recovery.js';
 import { detectTestRunner, buildTestCommand, parseTestOutput } from './test-orchestrator.js';
+import { runReview, REVIEW_VERDICT } from './review-engine.js';
 import { readEnv } from './env.js';
 import { packetFromHistory, buildEvidenceFallback } from './research-engine.js';
 import { compactResearchContext } from './research-context.js';
@@ -360,6 +361,22 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         });
         continue;
       }
+      // M52: independent review — verdict berdasarkan bukti aktual, bukan klaim.
+      // Reviewer memeriksa: aksi gagal disembunyikan? klaim tanpa bukti? acceptance terpenuhi?
+      const review = runReview({ contract, history, summary: step.summary });
+      if (review.verdict === REVIEW_VERDICT.REJECT) {
+        print('blocked', `Review DITOLAK — ${review.findings.filter(f => f.severity === 'BLOCKER').length} blocker.`);
+        review.findings.filter(f => f.severity === 'BLOCKER').slice(0, 4).forEach(f => printBlock(`  ✗ ${f.message}`, 2));
+        journalLog({ type: 'note', text: `review: REJECT — ${review.findings.filter(f => f.severity === 'BLOCKER').map(f => f.message).join('; ')}` });
+        pushHistory({
+          action: 'user_condition',
+          condition: `[SISTEM REVIEW: Klaim selesai DITOLAK oleh reviewer independen. ${review.findings.filter(f => f.severity === 'BLOCKER').map(f => f.message).join('; ')}. Perbaiki semua blocker sebelum ACTION: done.]`,
+        });
+        continue;
+      }
+      // Review APPROVE -> catat di journal
+      journalLog({ type: 'note', text: `review: APPROVE — ${review.verifiedActions}/${review.totalActions} aksi terverifikasi` });
+
       actionIndicator('done');
       print('done', step.summary);
       // M48: catat bukti per kriteria + status terminal ke journal.
