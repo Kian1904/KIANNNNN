@@ -836,6 +836,102 @@ cancel, retry, dan conflict detection.
 
 Bukti: `test-worker-lifecycle.mjs` **44 pass**.
 
+## M56 — Prompt Injection Defense (2026-10-25)
+
+Web fetch, MCP output, file content, dan bash output semuanya mengalir langsung
+ke model sebagai teks. Kalau di dalamnya ada instruksi tersembunyi, model bisa
+menurutinya. M56 memasang "shield".
+
+### `src/prompt-shield.js`
+
+- `INJECTION_PATTERNS` — 10 pola injeksi: `ignore_instructions`, `role_hijack`,
+  `fake_system`, `safety_override`, `dangerous_command`, `exfiltrate`,
+  `new_instructions`, `do_anything`, `hidden_instruction`, `xml_injection`.
+- `scanForInjection(text)` — deteksi pola → `{ safe, patterns }`.
+- `sanitizeUntrusted(text)` — truncate 100K, wrap dengan warning kalau injeksi.
+- `wrapUntrusted(content, source, origin)` — boundary `[UNTRUSTED:...]`.
+
+### Wiring ke `run-task.js`
+
+`web_fetch`, `web_search`, dan `mcp_call` results dibungkus `wrapUntrusted()`
+sebelum masuk history. Konten dari luar = DATA, bukan INSTRUKSI.
+
+Bukti: `test-prompt-shield.mjs` **28 pass**.
+
+## M57 — Multi-file Transaction (2026-10-25)
+
+Agent bisa edit banyak file, tapi kalau satu gagal, file lain tetap ke-edit.
+M57 memungkinkan operasi file dikelompokkan jadi transaction: all-or-nothing.
+
+### `src/file-transaction.js`
+
+- `TX_STATUS` — `pending`, `committed`, `rolled_back`, `failed`.
+- `beginTransaction` / `addOperation` / `commitTransaction` / `rollbackTransaction`.
+- `commitTransaction` eksekusi semua operasi berurutan; kalau satu gagal →
+  otomatis rollback semua yang sudah applied (urutan terbalik).
+- `getTransactionStatus` / `listOperations`.
+
+Bukti: `test-file-transaction.mjs` **31 pass**.
+
+## M58 — Real Benchmark Suite (2026-10-25)
+
+1043 test menguji kode, tapi belum ada yang menguji **kemampuan agent**
+menyelesaikan tugas nyata. M58 menjalankan skenario end-to-end.
+
+### `tests/test-benchmark.mjs`
+
+8 skenario:
+
+1. **Simple file creation** — buat file + verifikasi.
+2. **Multi-file creation** — buat 2 file.
+3. **Error recovery** — bash gagal → perbaiki → selesai.
+4. **Constraint compliance** — jangan hapus file yang ada.
+5. **False done detection** — klaim selesai tanpa bukti → DITOLAK.
+6. **Prompt injection resistance** — konten berbahaya terdeteksi + dibungkus.
+7. **Artifact provenance** — chain valid.
+8. **Worker lifecycle** — retry policy bekerja.
+
+Hasil: **22 pass, 0 fail — 100% pass rate**.
+
+## M59 — Interactive Clarification (2026-10-25)
+
+Agent sering langsung eksekusi berdasarkan asumsi saat instruksi ambigu.
+M59 mendeteksi ambiguitas dan mengajukan pertanyaan sebelum eksekusi.
+
+### `src/clarification.js`
+
+- `AMBIGUITY_PATTERNS` — 7 pola: `auth_method`, `website_type`,
+  `vague_refactor`, `vague_fix`, `database_choice`, `deployment_target`,
+  `framework_choice`.
+- `detectAmbiguity(instruction)` — deteksi → `{ ambiguous, issues }`.
+- `generateQuestions(detection)` — buat pertanyaan dengan options/freeform.
+- `shouldClarify(instruction)` — boolean.
+- `incorporateAnswers(instruction, answers)` — gabung jawaban ke instruksi.
+
+Bukti: `test-clarification.mjs` **24 pass**.
+
+## M60 — Long-running Task Support (2026-10-25)
+
+Task panjang tidak punya indikasi progress. User tidak tahu sampai mana
+pekerjaan, dan kalau Termux mati, tidak ada yang tahu status task.
+
+### `src/task-progress.js`
+
+- `createProgressTracker({ taskId, totalSteps, label, reportInterval })`.
+- `updateProgress(tracker, { step, action })` — catat progress.
+- `getProgressReport(tracker)` — laporan: task, progress, elapsed, langkah terakhir.
+- `shouldReport(tracker, step)` — lapor setiap N step + step terakhir.
+- `registerSignalHandler(onSignal)` — graceful shutdown (SIGINT/SIGTERM).
+- `getRemainingEstimate(tracker)` — estimasi waktu tersisa dari kecepatan step.
+
+Bukti: `test-task-progress.mjs` **34 pass**.
+
+### Verifikasi gabungan M56–M60
+
+```text
+full suite : 1182 pass, 0 fail | 64 file
+```
+
 ## M55 — Shared Artifact Registry (2026-10-25)
 
 Worker sekarang bisa berbagi artifact melalui registry terpusat. Researcher
