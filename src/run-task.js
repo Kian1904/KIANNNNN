@@ -24,6 +24,7 @@ import { TASK_STATUS, createJournal, appendEntry, readJournal, replayJournal, ta
 import { decideRecovery, buildRecoveryHint } from './recovery.js';
 import { detectTestRunner, buildTestCommand, parseTestOutput } from './test-orchestrator.js';
 import { runReview, REVIEW_VERDICT } from './review-engine.js';
+import { wrapUntrusted, scanForInjection } from './prompt-shield.js';
 import { readEnv } from './env.js';
 import { packetFromHistory, buildEvidenceFallback } from './research-engine.js';
 import { compactResearchContext } from './research-context.js';
@@ -506,7 +507,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         const result = await callTool(step.tool, step.toolArgs, toolsForAgent);
         print('mcp', 'Hasil:');
         printBlock(result.slice(0, 2500) + (result.length > 500 ? '...' : ''));
-        pushHistory({ action: 'mcp_call', tool: step.tool, result });
+        pushHistory({ action: 'mcp_call', tool: step.tool, result: wrapUntrusted(result, 'mcp_call', step.tool) });
         if (threadId) {
           logStep({ threadId, role: 'assistant', content: `Called tool: ${step.tool}\nResult: ${result.slice(0, 500)}${result.length > 500 ? '...' : ''}`, actionType: 'mcp_call', detail: { tool: step.tool, result }, reasoning: step.reasoning });
         }
@@ -549,7 +550,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           print('info', `Batas search tercapai — ambil isi sumber: ${chosen}`);
           const page = await fetchWebPage(chosen);
           if (page.ok) {
-            pushHistory({ action: 'web_fetch', url: page.url, summary: focusWebText(page.text, instruction).slice(0, 30000) });
+            pushHistory({ action: 'web_fetch', url: page.url, summary: wrapUntrusted(focusWebText(page.text, instruction).slice(0, 30000), 'web_fetch', page.url) });
             actionIndicator('web_fetch', chosen);
             printBlock(page.text.slice(0, 800), 2);
             print('info', `Isi halaman disimpan ke history (${page.text.length} karakter) — agent akan merangkum, bukan menyalin mentah.`);
@@ -589,7 +590,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         const summary = results
           .map((r, idx) => `[${idx + 1}] ${r.title}\n${r.url}\n${r.snippet}`)
           .join('\n\n');
-        pushHistory({ action: 'web_search', query: step.query, provider, summary: summary || '(tidak ada hasil)' });
+        pushHistory({ action: 'web_search', query: step.query, provider, summary: wrapUntrusted(summary || '(tidak ada hasil)', 'web_search', step.query) });
 
         // Safety net fleksibel: kalau sudah dua search dan belum pernah membaca
         // halaman, ambil satu sumber resmi terbaik. Model tetap boleh langsung
@@ -606,7 +607,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
             print('info', `Dua search selesai — baca sumber terbaik: ${chosen}`);
             const page = await fetchWebPage(chosen);
             if (page.ok) {
-              pushHistory({ action: 'web_fetch', url: page.url, summary: focusWebText(page.text, instruction).slice(0, 30000) });
+              pushHistory({ action: 'web_fetch', url: page.url, summary: wrapUntrusted(focusWebText(page.text, instruction).slice(0, 30000), 'web_fetch', page.url) });
               actionIndicator('web_fetch', chosen);
               printBlock(page.text.slice(0, 800), 2);
               print('info', `Isi halaman disimpan ke history (${page.text.length} karakter) — agent akan merangkum, bukan menyalin mentah.`);
