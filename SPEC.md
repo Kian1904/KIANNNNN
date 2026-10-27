@@ -769,6 +769,96 @@ Integrasi melakukan crash sungguhan: child process di-`SIGKILL` di tengah task,
 journal tetap valid dan non-terminal, `planResume` bisa membaca kondisi
 pasca-crash, dan task terminal menolak resume.
 
+## M52 — Independent Review Engine (2026-10-25)
+
+Sebelum M52, tidak ada reviewer independen yang memverifikasi klaim agent.
+Contract gate M47 cek evidence per kriteria, tapi belum ada yang memeriksa
+(a) apakah klaim di summary punya bukti, (b) apakah aksi gagal disembunyikan,
+(c) apakah summary tidak berlebihan dibanding yang dikerjakan.
+
+### `src/review-engine.js`
+
+- `REVIEW_VERDICT` — `APPROVE` / `REJECT`.
+- `validateAcceptance(contract, results)` — validasi acceptance criteria:
+  completed tanpa evidence = BLOCKER, pending = BLOCKER.
+- `runReview({ contract, history, summary })` — review independen:
+  1. Aksi gagal → BLOCKER.
+  2. Klaim test tanpa bukti bash → BLOCKER.
+  3. Klaim file dibuat tanpa bukti edit → BLOCKER.
+  4. Klaim riset tanpa bukti web/read → WARNING.
+  5. Summary kosong → BLOCKER.
+  6. Klaim selesai tanpa aksi → BLOCKER.
+  7. Validasi acceptance criteria.
+- `buildReviewReport()` — laporan dengan BLOCKER > WARNING > NIT.
+
+### Wiring ke `run-task.js`
+
+Di jalur `done`, setelah contract gate M47 dan sebelum `actionIndicator('done')`:
+REJECT → `continue` + inject `[SISTEM REVIEW: ...]` ke system prompt.
+APPROVE → catat di journal.
+
+Bukti: `test-review-engine.mjs` **22 pass**.
+
+## M53 — Artifact Provenance System (2026-10-25)
+
+Setiap bukti (evidence, file change, test result, review, worker result) sekarang
+punya **ID unik, source, timestamp, dan chain provenance**.
+
+### `src/artifact-registry.js`
+
+- `ARTIFACT_TYPE` — 7 jenis: `evidence`, `file_change`, `test_result`, `review`,
+  `worker_result`, `command_output`, `web_content`.
+- `createArtifact({ type, source, data, dir })` — buat artifact dengan ID unik.
+  Opsional simpan ke disk (`dir`).
+- `listArtifacts(dir)` / `getArtifact(id, dir)` — query dari disk.
+- `chainArtifacts(child, parent)` — catat bahwa `child` berasal dari `parent`.
+- `validateProvenance(artifact, registry)` — validasi rantai: semua parent
+  harus ada di registry.
+
+Bukti: `test-artifact-registry.mjs` **29 pass**.
+
+## M54 — Worker Lifecycle (2026-10-25)
+
+Worker squad sekarang punya lifecycle eksplisit: lease, heartbeat, timeout,
+cancel, retry, dan conflict detection.
+
+### `src/worker-lifecycle.js`
+
+- `WORKER_STATUS` — `pending`, `running`, `completed`, `failed`, `cancelled`, `timeout`.
+- `createWorker({ id, role, taskId, timeoutMs, maxAttempts })` — worker baru.
+- `heartbeat(worker)` / `isAlive(worker)` / `isTimedOut(worker)` — health check.
+- `leaseTask(worker)` — mulai kerja, increment attempts.
+- `releaseTask(worker, result)` — selesai (sukses/gagal).
+- `cancelWorker(worker, reason)` — batalkan.
+- `shouldRetry(worker)` — boleh retry? (tidak terminal, belum maxAttempts).
+- `detectConflict(worker, registry)` — dua worker task sama → conflict.
+- `listWorkers(registry)` / `getWorker(id, registry)` — query.
+
+Bukti: `test-worker-lifecycle.mjs` **44 pass**.
+
+## M55 — Shared Artifact Registry (2026-10-25)
+
+Worker sekarang bisa berbagi artifact melalui registry terpusat. Researcher
+publish evidence, coder discover dan consume, reviewer verifikasi.
+
+### `src/shared-artifacts.js`
+
+- `createSharedRegistry()` — registry in-memory.
+- `publishArtifact(registry, { type, source, tags, data, parentIds })` — publish.
+- `discoverArtifacts(registry, { type, tag, source })` — cari artifact.
+- `consumeArtifact(registry, artifactId, workerId)` — catat consumer.
+- `getArtifactChain(registry, artifactId)` — rantai root → leaf (BFS).
+- `queryByTag(registry, tag)` / `queryByType(registry, type)` — query.
+- `getConsumerCount(registry, artifactId)` — jumlah consumer unik.
+
+Bukti: `test-shared-artifacts.mjs` **24 pass**.
+
+### Verifikasi gabungan M52–M55
+
+```text
+full suite : 1043 pass, 0 fail | 59 file
+```
+
 ## M51 — Verification/Test Orchestrator (2026-10-25)
 
 Sebelum M51, agent harus menjalankan test secara manual via `ACTION: bash` lalu
