@@ -769,6 +769,76 @@ Integrasi melakukan crash sungguhan: child process di-`SIGKILL` di tengah task,
 journal tetap valid dan non-terminal, `planResume` bisa membaca kondisi
 pasca-crash, dan task terminal menolak resume.
 
+## M51 — Verification/Test Orchestrator (2026-10-25)
+
+Sebelum M51, agent harus menjalankan test secara manual via `ACTION: bash` lalu
+membaca output mentahnya sendiri. Tidak ada auto-detect test runner, tidak ada
+structured result, dan hasil test tidak jadi bukti otomatis untuk contract gate.
+
+### `src/test-orchestrator.js`
+
+- `detectTestRunner({ files, root })` — detect test runner dari marker file:
+  - `package.json` → `npm` (command: `npm test --silent 2>&1`)
+  - `go.mod` → `go` (command: `go test ./... 2>&1`)
+  - `pyproject.toml`/`requirements.txt`/`setup.py` → `python` (command: `pytest` → fallback `unittest`)
+- `buildTestCommand(detected)` — build command string; lookup dari registry kalau
+  dipanggil manual tanpa field `command`.
+- `parseTestOutput(stdout, runner)` — parse output jadi structured result:
+  ```js
+  { passed, testsPassed, testsFailed, failures[], summary, raw }
+  ```
+  Mendukung format: KIANNNNN (`X pass, Y fail`), TAP (`ok 1 - ...`), Jest/Vitest
+  (`Tests: X passed, Y failed`), Go (`--- PASS:` / `--- FAIL:`), pytest
+  (`X passed, Y failed`), unittest (`Ran N tests ... OK`).
+
+### Wiring ke `run-task.js`
+
+Di jalur `ACTION: done`, **sebelum** contract gate M47:
+
+1. Cek `needsTest`: apakah contract punya kriteria yang menyebut "test".
+2. Kalau ya, `detectTestRunner({ root: process.cwd() })`.
+3. Jalankan test via `runCommand(cmd)`.
+4. Parse hasilnya via `parseTestOutput()`.
+5. Push ke history sebagai `{ action: 'bash', verified: testVerified, testResult: parsed }`.
+6. Test PASS → lanjut ke contract gate (bukti `hasBashOk` terpenuhi).
+7. Test FAIL → `continue` + inject `[SISTEM TEST: ...]` ke system prompt,
+   model wajib memperbaiki sebelum `done`.
+
+### Bug nyata yang ketangkep
+
+**1. `isSafePath` nolak write ke `/tmp`.**
+Test integrasi awal pakai `os.tmpdir()` sebagai WORK_DIR. `isSafePath` memblokir
+write di luar project root → "path diblokir karena keamanan". Fix: WORK_DIR
+di dalam project (`.tmp-kian-m51-work-*`).
+
+**2. `write` action tidak boleh overwrite.**
+Test [1] membuat `hasil.txt`, test [2] dan [3] mencoba membuat file yang sama →
+"target sudah ada — write tidak boleh overwrite". Fix: nama file unik per test.
+
+**3. Test nge-check return value, bukan stdout.**
+`print()` menulis ke stdout, tapi test mengecek `out` (return value `runTask`)
+yang hanya berisi summary string. Fix: `captureStdout()` wrapper.
+
+**4. `buildTestCommand` tidak fallback ke registry.**
+Dipanggil manual dengan `{ runner: 'npm' }` tanpa field `command` → return null.
+Fix: lookup dari `RUNNERS` registry kalau `command` tidak ada.
+
+### Bukti
+
+```text
+test-test-orchestrator.mjs             : 13 pass, 0 fail (unit)
+test-test-orchestrator-integration.mjs : 10 pass, 0 fail (lewat runTask asli)
+full suite                             : 924 pass, 0 fail | 55 file
+```
+
+Integrasi membuktikan tiga perilaku di jalur produksi:
+
+- project tanpa test runner → done tetap jalan, tidak ada error;
+- project dengan test runner + test PASS → orchestrator jalan, output
+  "M51 test orchestrator" dan "test PASS" tercetak, done diterima;
+- test FAIL → done ditolak, "test FAIL" tercetak, failure detail di-print,
+  task tidak mengklaim selesai.
+
 ## M50 — Recovery Engine (2026-10-25)
 
 Sebelum M50, semua error dilempar ke model sebagai teks mentah. Akibatnya agent

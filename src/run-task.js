@@ -22,6 +22,7 @@ import { createTaskState, allCompleted } from './task-state.js';
 import { buildTaskContract, contractBlocksCompletion, renderContract } from './task-contract.js';
 import { TASK_STATUS, createJournal, appendEntry, readJournal, replayJournal, taskPath, defaultJournalDir } from './task-journal.js';
 import { decideRecovery, buildRecoveryHint } from './recovery.js';
+import { detectTestRunner, buildTestCommand, parseTestOutput } from './test-orchestrator.js';
 import { readEnv } from './env.js';
 import { packetFromHistory, buildEvidenceFallback } from './research-engine.js';
 import { compactResearchContext } from './research-context.js';
@@ -303,6 +304,45 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         // Jangan percaya klaim done. Minta model satu langkah koreksi/verifikasi.
         systemPromptOverride = `${systemPromptOverride || ''}\n\n[SISTEM VERIFIER: Klaim selesai DITOLAK: ${completion.reason}. Jangan ACTION: done dulu. Periksa ulang hasil aksi terakhir dan pilih aksi verifikasi/perbaikan yang konkret.]`;
         continue;
+      }
+      // M51: test orchestrator gate — kalau contract punya kriteria test dan
+      // project punya test runner, jalankan test NYATA sebelum done diterima.
+      // Hasilnya di-parse jadi structured result lalu masuk history sebagai bukti.
+      const needsTest = contract.acceptance.some(a => /test/i.test(a.text));
+      if (needsTest) {
+        const detected = detectTestRunner({ root: process.cwd() });
+        if (detected) {
+          const cmd = buildTestCommand(detected);
+          print('info', `M51 test orchestrator: menjalankan ${cmd}`);
+          try {
+            const result = await runCommand(cmd);
+            const parsed = parseTestOutput(result.stdout || '', detected.runner);
+            const testVerified = result.code === 0 && parsed.passed;
+            journalLog({
+              type: 'action', action: 'test', command: cmd,
+              verified: testVerified, error: testVerified ? undefined : `test gagal (${parsed.summary})`,
+            });
+            pushHistory({
+              action: 'bash', command: cmd,
+              approved: true,
+              result: { ok: testVerified, code: result.code, stdout: parsed.summary, stderr: result.stderr || '' },
+              verified: testVerified,
+              error: testVerified ? undefined : `test gagal: ${parsed.summary}`,
+              testResult: parsed,
+            });
+            if (testVerified) {
+              print('verify_ok', `test PASS: ${parsed.summary}`);
+            } else {
+              print('error', `test FAIL: ${parsed.summary}`);
+              parsed.failures.slice(0, 5).forEach(f => printBlock(`  ${f}`, 2));
+              systemPromptOverride = `${systemPromptOverride || ''}\n\n[SISTEM TEST: Test project GAGAL: ${parsed.summary}. ${parsed.failures.slice(0, 3).join('; ')}. Perbaiki penyebabnya sebelum ACTION: done.]`;
+              continue;
+            }
+          } catch (err) {
+            journalLog({ type: 'action', action: 'test', verified: false, error: err.message });
+            print('error', `test orchestrator gagal: ${err.message}`);
+          }
+        }
       }
       // M47: gerbang kontrak. Bukti diambil dari hasil ACTUAL yang sudah tercatat
       // di history (verified:true), bukan dari narasi model.
