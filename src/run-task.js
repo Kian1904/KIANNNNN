@@ -14,12 +14,10 @@ import { verifyAction, verifyCompletion } from './verifier.js';
 import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
 import { inspectTarget, describeTarget, rejectReason, rejectWriteReason, applyFileOp, applySafeFileOp, lintAfterWrite } from './file-ops.js';
-import { composeAgentPrompt, filterToolsForAgent } from './agents.js';
 import { preflightEnvironment } from './environment.js';
-import { createTaskBudget } from './task-budget.js';
 import { delegateTask } from './delegate-cli.js';
 import { createTaskState, allCompleted } from './task-state.js';
-import { contractBlocksCompletion, renderContract } from './task-contract.js';
+import { contractBlocksCompletion } from './task-contract.js';
 import { TASK_STATUS, readJournal, replayJournal, taskPath, defaultJournalDir } from './task-journal.js';
 import { decideRecovery, buildRecoveryHint } from './recovery.js';
 import { detectTestRunner, buildTestCommand, parseTestOutput } from './test-orchestrator.js';
@@ -29,15 +27,13 @@ import { readEnv } from './env.js';
 import { packetFromHistory, buildEvidenceFallback } from './research-engine.js';
 import { compactResearchContext } from './research-context.js';
 
-// M12 — Extended MAX_LOOPS
-const MAX_LOOPS = parseInt(process.env.MAX_LOOPS) || 25;
-
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:task]', ...args); };
 
 /** Evidence mapping lives in src/core/evidence.js. */
 import { evidenceForContract } from './core/evidence.js';
 import { createTaskContext } from './core/task-context.js';
+import { createTaskRuntimeConfig } from './core/task-config.js';
 export { evidenceForContract };
 
 /**
@@ -81,29 +77,12 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       print('warn', `Environment agent "${agentConfig.name}" degraded: ${preflight.optionalMissing.map(x => `${x.type}:${x.name || x.path}`).join(', ')}`);
     }
   }
-  const maxLoops = (agentConfig && agentConfig.maxLoops) || MAX_LOOPS;
-  // M40: budget per task — search/fetch/step dibatasi deterministik, bukan
-  // nunggu provider error baru sadar.
-  const budget = createTaskBudget({
-    maxSteps: maxLoops,
-    maxSearches: parseInt(readEnv('MAX_SEARCH')) || 2,
-    maxFetches: parseInt(readEnv('MAX_FETCH')) || 3,
-    maxProviderCalls: parseInt(process.env.MAX_LOOPS) ? Math.min(MAX_LOOPS * 3, 30) : 15,
-  });
-  let systemPromptOverride = agentConfig ? composeAgentPrompt(agentConfig, agentMd) : null;
-
-  // M47: kontrak task disuntik ke system prompt supaya model tahu definisi
-  // selesai SEBELUM mulai, bukan dikoreksi belakangan setelah kerja sia-sia.
+  const runtimeConfig = createTaskRuntimeConfig({ agentConfig, agentMd, availableTools, contract });
+  const { maxLoops, budget, toolsForAgent, allowedActions } = runtimeConfig;
+  let systemPromptOverride = runtimeConfig.systemPromptOverride;
   if (contract.acceptance.length > 0) {
-    const contractText = renderContract(contract);
-    const contractBlock = `\n\n## KONTRAK TASK (WAJIB DIPENUHI)\n${contractText}\n\nACTION: done HANYA diterima kalau semua acceptance criteria di atas punya bukti aktual.\nKalau ada kriteria yang belum bisa dibuktikan, jangan pilih done — lakukan aksi yang membuktikannya.`;
-    systemPromptOverride = `${systemPromptOverride || ''}${contractBlock}`;
     print('info', `Kontrak task: ${contract.acceptance.length} kriteria (risk: ${contract.risk})`);
   }
-  const toolsForAgent = agentConfig
-    ? filterToolsForAgent(availableTools, agentConfig.mcpTools)
-    : availableTools;
-  const allowedActions = agentConfig ? agentConfig.actions : null;
   let blockedCount = 0;
   // M50: hitung kegagalan berturut-turut untuk kebijakan recovery.
   let consecutiveFailures = 0;
