@@ -19,8 +19,8 @@ import { preflightEnvironment } from './environment.js';
 import { createTaskBudget } from './task-budget.js';
 import { delegateTask } from './delegate-cli.js';
 import { createTaskState, allCompleted } from './task-state.js';
-import { buildTaskContract, contractBlocksCompletion, renderContract } from './task-contract.js';
-import { TASK_STATUS, createJournal, appendEntry, readJournal, replayJournal, taskPath, defaultJournalDir } from './task-journal.js';
+import { contractBlocksCompletion, renderContract } from './task-contract.js';
+import { TASK_STATUS, readJournal, replayJournal, taskPath, defaultJournalDir } from './task-journal.js';
 import { decideRecovery, buildRecoveryHint } from './recovery.js';
 import { detectTestRunner, buildTestCommand, parseTestOutput } from './test-orchestrator.js';
 import { runReview, REVIEW_VERDICT } from './review-engine.js';
@@ -37,6 +37,7 @@ const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:task]', ...args); };
 
 /** Evidence mapping lives in src/core/evidence.js. */
 import { evidenceForContract } from './core/evidence.js';
+import { createTaskContext } from './core/task-context.js';
 export { evidenceForContract };
 
 /**
@@ -54,58 +55,17 @@ export { evidenceForContract };
  */
 export async function runTask(instruction, agentMd, availableTools, threadId, stats, trackProvider, trackAction, isDangerous, askApproval, agentConfig = null) {
   if (stats) stats.tasks++;
-  const history = [];
-  // M48: setiap aksi yang masuk history juga masuk journal. Dibungkus sekali di
-  // sini supaya SEMUA jalur aksi (read/bash/edit/web/delegate/...) tercatat
-  // tanpa harus menyisipkan kode journal di ~20 call site.
-  const pushHistory = (item) => {
-    history.push(item);
-    if (item && typeof item === 'object') {
-      try {
-        journalLog({
-          type: 'action',
-          action: item.action,
-          target: item.target,
-          command: item.command,
-          verified: item.verified === true,
-          error: item.error,
-          approved: item.approved,
-        });
-      } catch { /* journal tidak boleh mematikan task */ }
-    }
-    return item;
-  };
+  // Core task context owns history, contract, and journal persistence.
+  const taskContext = createTaskContext({
+    instruction,
+    agentConfig,
+    threadId,
+    journalEnabled: readEnv('JOURNAL') !== '0',
+  });
+  const { history, contract, journal, journalLog, pushHistory } = taskContext;
   let taskState = null;
-  // M47: kontrak task dibangun deterministik dari instruksi user — bukan dari
-  // jawaban model. Ini yang jadi gerbang "selesai": klaim done harus punya
-  // bukti untuk setiap acceptance criteria.
-  const contract = agentConfig && agentConfig.contractEnabled === false
-    ? { goal: '', constraints: [], acceptance: [], risk: 'low', instruction: '' }
-    : buildTaskContract(instruction);
   const contractResults = new Map();
   let lastTarget = null;
-
-  // M48: journal per task — append-only, crash-safe, di-redact.
-  // Kalau env K_JOURNAL=0, journal dimatikan (dipakai test lama yang tidak mau
-  // menyentuh disk). Default: aktif.
-  const journalEnabled = readEnv('JOURNAL') !== '0';
-  const journal = journalEnabled
-    ? (() => {
-        try {
-          return createJournal({
-            taskId: `t-${Date.now()}-${process.pid}`,
-            goal: instruction,
-            status: TASK_STATUS.RUNNING,
-            meta: { agent: agentConfig?.name || 'generic', cwd: process.cwd(), threadId: threadId ?? null, risk: contract.risk },
-          });
-        } catch { return null; }
-      })()
-    : null;
-  /** Catat ke journal tanpa pernah mengganggu jalannya task. */
-  const journalLog = (entry) => {
-    if (!journal) return;
-    try { appendEntry(journal, entry); } catch { /* journal tidak boleh mematikan task */ }
-  };
   const recentMemory = getRecentDecisions(5);
   let webSearchCount = 0;
 
