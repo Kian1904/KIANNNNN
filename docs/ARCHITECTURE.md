@@ -68,3 +68,13 @@ They remain available for tests and experiments, but must not silently become re
 - Several modules are test-covered but not connected to the runtime path.
 - The test suite is environment-sensitive: Node must provide `node:sqlite` and network-dependent tests may skip or vary.
 - `SPEC.md` contains historical milestone claims; runtime behavior and fresh test output take precedence.
+
+## Locked decision — completion gate
+
+The next core boundary is `src/core/completion-gate.js`. The `done` path is the authoritative definition of task success and must evaluate, in order: checklist state, completion summary, required project tests, evidence contract, and independent review. It returns a structured decision (`approved`, `reason`, `evidence`, `testResult`, `review`) and owns no UI or model-loop control. `run-task.js` remains responsible for feedback/retry and terminal journal writes. Do not add another completion/review engine while this boundary is being extracted.
+
+Decision status: locked for implementation.
+
+## Locked decision — execution boundaries
+
+After completion-gate is stable, action side effects will move behind execution boundaries. The loop remains the coordinator; execution modules return structured results and do not own presentation. Optional capabilities (squad, delegation, research, routing, artifacts, recovery) stay outside the core path until an end-to-end use case proves otherwise.
