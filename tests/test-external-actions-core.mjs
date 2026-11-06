@@ -1,4 +1,4 @@
-import { buildDelegateRequest, buildMcpRequest, buildSearchRecord, buildFetchRecord } from '../src/core/external-actions.js';
+import { buildDelegateRequest, buildMcpRequest, buildSearchRecord, buildFetchRecord, normalizeDelegateError } from '../src/core/external-actions.js';
 
 let pass = 0;
 let fail = 0;
@@ -13,6 +13,8 @@ const search = buildSearchRecord('q', 'serper', [{ url: 'https://x', title: 'X',
 check('search record formats source', search.summary.includes('https://x') && search.query === 'q');
 const fetch = buildFetchRecord('https://x', 'body', true);
 check('fetch record keeps url/body', fetch.url === 'https://x' && fetch.summary === 'body' && fetch.verified === true);
+check('delegate error is normalized', normalizeDelegateError({ error: 'boom' }) === 'boom');
+check('delegate empty error gets fallback', normalizeDelegateError({}) === 'gagal');
 
 console.log(`\n=== HASIL EXTERNAL-ACTIONS-CORE: ${pass} pass, ${fail} fail ===`);
 if (fail) process.exit(1);

@@ -15,3 +15,7 @@ export function buildSearchRecord(query, provider, results = []) {
 export function buildFetchRecord(url, summary, verified, error) {
   return { action: 'web_fetch', url, summary, verified: verified === true, error: verified === true ? undefined : error };
 }
+
+export function normalizeDelegateError(result = {}) {
+  return result.error || 'gagal';
+}

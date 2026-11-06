@@ -40,7 +40,7 @@ import { buildBashHistory, formatBashOutput } from './core/bash-actions.js';
 import { buildMutationPlan, buildMutationHistory } from './core/file-mutation.js';
 import { buildEditHistory, buildDestructiveHistory, buildWebHistory, buildMcpHistory, buildChatHistory, buildRememberHistory, buildReadHistory, buildListHistory, buildDelegateHistory } from './core/action-results.js';
 import { buildEditPlan, buildDestructivePlan, destructiveVerb, formatDestructivePreview } from './core/file-execution.js';
-import { buildDelegateRequest, buildMcpRequest, buildSearchRecord, buildFetchRecord } from './core/external-actions.js';
+import { buildDelegateRequest, buildMcpRequest, buildSearchRecord, buildFetchRecord, normalizeDelegateError } from './core/external-actions.js';
 import { evaluateCompletion } from './core/completion-gate.js';
 export { evidenceForContract };
 
@@ -361,9 +361,10 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         print('delegate_ok', `${step.agent}: ${result.summary.slice(0, 2000)}`);
         pushHistory(buildDelegateHistory(step.agent, step.task, { summary: result.summary, artifacts: result.artifacts || [], changed_files: result.changed_files || [], tests: result.tests || [], tests_passed: result.tests_passed === true, approved: true, verified: result.verified === true }));
       } else {
-        print('delegate_err', `${step.agent}: ${result.error || 'gagal'}`);
-        pushHistory({ action: 'delegate', agent: step.agent, task: step.task, approved: true, verified: false, error: result.error || 'gagal' });
-        pushHistory({ action: 'user_condition', condition: `[SISTEM: Delegasi ke ${step.agent} GAGAL: ${result.error || 'gagal'}. Kamu WAJIB memperbaiki task atau coba pendekatan lain sebelum bilang done.]` });
+        const delegateError = normalizeDelegateError(result);
+        print('delegate_err', `${step.agent}: ${delegateError}`);
+        pushHistory({ action: 'delegate', agent: step.agent, task: step.task, approved: true, verified: false, error: delegateError });
+        pushHistory({ action: 'user_condition', condition: `[SISTEM: Delegasi ke ${step.agent} GAGAL: ${delegateError}. Kamu WAJIB memperbaiki task atau coba pendekatan lain sebelum bilang done.]` });
       }
       continue;
     }
