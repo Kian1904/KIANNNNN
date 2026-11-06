@@ -20,7 +20,7 @@ import { handleConnect } from './commands/connect.js';
 import { handleAuth } from './commands/auth.js'; // BARU
 import { isDangerous } from './approval.js';
 import { MODES, DESTRUCTIVE_ACTIONS, normalizeMode, decide, MODE_DESCRIPTIONS } from './modes.js';
-import { routeTask, describeRouting } from './routing.js';
+import { routeTask, describeRouting } from './optional/routing.js';
 import { reviewPlan, MAX_REPLANS } from './plan-review.js';
 
 const DEBUG = process.argv.includes('--debug');

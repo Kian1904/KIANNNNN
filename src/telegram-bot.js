@@ -30,7 +30,7 @@ import { discoverTools } from '../mcp/client.js';
 import { loadAgentMd } from './utils/fs.js';
 import { isDangerous } from './approval.js';
 import { MODES, DESTRUCTIVE_ACTIONS, normalizeMode, decide, MODE_DESCRIPTIONS } from './modes.js';
-import { routeTask, describeRouting } from './routing.js';
+import { routeTask, describeRouting } from './optional/routing.js';
 import { createApprovalQueue } from './approval-queue.js';
 import { readEnv } from './env.js';
 

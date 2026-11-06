@@ -15,7 +15,7 @@ import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
 import { inspectTarget, describeTarget, rejectReason, rejectWriteReason, applyFileOp, applySafeFileOp, lintAfterWrite } from './file-ops.js';
 import { preflightEnvironment } from './environment.js';
-import { delegateTask } from './delegate-cli.js';
+import { delegateTask } from './optional/delegation.js';
 import { createTaskState, allCompleted } from './task-state.js';
 import { contractBlocksCompletion } from './task-contract.js';
 import { TASK_STATUS, readJournal, replayJournal, taskPath, defaultJournalDir } from './task-journal.js';
@@ -24,8 +24,7 @@ import { detectTestRunner, buildTestCommand, parseTestOutput } from './test-orch
 import { runReview } from './review-engine.js';
 import { wrapUntrusted, scanForInjection } from './prompt-shield.js';
 import { readEnv } from './env.js';
-import { packetFromHistory, buildEvidenceFallback } from './research-engine.js';
-import { compactResearchContext } from './research-context.js';
+import { packetFromHistory, buildEvidenceFallback, compactResearchContext } from './optional/research.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:task]', ...args); };
