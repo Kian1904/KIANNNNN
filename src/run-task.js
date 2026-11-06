@@ -40,6 +40,7 @@ import { buildBashHistory, formatBashOutput } from './core/bash-actions.js';
 import { buildMutationPlan, buildMutationHistory } from './core/file-mutation.js';
 import { buildEditHistory, buildDestructiveHistory, buildWebHistory, buildMcpHistory, buildChatHistory, buildRememberHistory, buildReadHistory, buildListHistory, buildDelegateHistory } from './core/action-results.js';
 import { buildEditPlan, buildDestructivePlan, destructiveVerb, formatDestructivePreview } from './core/file-execution.js';
+import { buildDelegateRequest, buildMcpRequest, buildSearchRecord, buildFetchRecord } from './core/external-actions.js';
 import { evaluateCompletion } from './core/completion-gate.js';
 export { evidenceForContract };
 
@@ -354,12 +355,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         pushHistory({ action: 'delegate', agent: step.agent, task: step.task, approved: true, verified: false, error });
         continue;
       }
-      const result = await delegateTask(step.agent, step.task, {
-        cwd: process.cwd(),
-        sandbox: true,
-        outputFormat: 'json',
-        timeoutMs: 120_000,
-      });
+      const delegateRequest = buildDelegateRequest(step.agent, step.task, process.cwd());
+      const result = await delegateTask(delegateRequest.agent, delegateRequest.task, delegateRequest.options);
       if (result.ok) {
         print('delegate_ok', `${step.agent}: ${result.summary.slice(0, 2000)}`);
         pushHistory(buildDelegateHistory(step.agent, step.task, { summary: result.summary, artifacts: result.artifacts || [], changed_files: result.changed_files || [], tests: result.tests || [], tests_passed: result.tests_passed === true, approved: true, verified: result.verified === true }));
@@ -376,7 +373,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       actionIndicator('mcp_call', step.tool);
       print('mcp', `Memanggil tool: ${step.tool}`);
       try {
-        const result = await callTool(step.tool, step.toolArgs, toolsForAgent);
+        const mcpRequest = buildMcpRequest(step.tool, step.toolArgs);
+        const result = await callTool(mcpRequest.tool, mcpRequest.args, toolsForAgent);
         print('mcp', 'Hasil:');
         printBlock(result.slice(0, 2500) + (result.length > 500 ? '...' : ''));
         pushHistory(buildMcpHistory(step.tool, wrapUntrusted(result, 'mcp_call', step.tool)));
@@ -462,7 +460,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         const summary = results
           .map((r, idx) => `[${idx + 1}] ${r.title}\n${r.url}\n${r.snippet}`)
           .join('\n\n');
-        pushHistory({ ...buildWebHistory('web_search', step.query, wrapUntrusted(summary || '(tidak ada hasil)', 'web_search', step.query), results.length > 0, results.length > 0 ? undefined : 'search tidak menghasilkan sumber'), provider });
+        const searchRecord = buildSearchRecord(step.query, provider, results);
+        pushHistory({ ...searchRecord, summary: wrapUntrusted(searchRecord.summary, 'web_search', step.query) });
 
         // Safety net fleksibel: kalau sudah dua search dan belum pernah membaca
         // halaman, ambil satu sumber resmi terbaik. Model tetap boleh langsung
@@ -520,7 +519,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           printBlock(summary.slice(0, 800), 2);
           print('info', `Isi halaman disimpan ke history (${summary.length} karakter) — agent akan merangkum, bukan menyalin mentah.`);
           const fetchVerification = verifyAction({ action: 'web_fetch', text: summary });
-          pushHistory(buildWebHistory('web_fetch', page.url, focusWebText(summary, instruction).slice(0, 30000), fetchVerification.ok, fetchVerification.reason));
+          pushHistory(buildFetchRecord(page.url, focusWebText(summary, instruction).slice(0, 30000), fetchVerification.ok, fetchVerification.reason));
           if (threadId) {
             logStep({ threadId, role: 'assistant', content: `Fetched: ${page.url}`, actionType: 'web_fetch', detail: { url: page.url, status: page.status, chars: summary.length }, reasoning: step.reasoning });
           }
