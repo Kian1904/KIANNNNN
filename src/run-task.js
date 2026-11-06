@@ -199,6 +199,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       // project punya test runner, jalankan test NYATA sebelum done diterima.
       // Hasilnya di-parse jadi structured result lalu masuk history sebagai bukti.
       const needsTest = contract.acceptance.some(a => /test/i.test(a.text));
+      let testResult = null;
       if (needsTest) {
         const detected = detectTestRunner({ root: process.cwd() });
         if (detected) {
@@ -208,6 +209,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
             const result = await runCommand(cmd);
             const parsed = parseTestOutput(result.stdout || '', detected.runner);
             const testVerified = result.code === 0 && parsed.passed;
+            testResult = { required: true, passed: testVerified, summary: parsed.summary, failures: parsed.failures, runner: detected.runner };
             journalLog({
               type: 'action', action: 'test', command: cmd,
               verified: testVerified, error: testVerified ? undefined : `test gagal (${parsed.summary})`,
@@ -239,23 +241,23 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       const gateResults = evidenceForContract(history, contract);
       contractResults.clear();
       for (const res of gateResults) contractResults.set(res.id, res);
+      const review = runReview({ contract, history, summary: step.summary });
       const completionDecision = evaluateCompletion({
         checklist: taskState,
         summary: step.summary,
         history,
         contract,
         evidence: gateResults,
-        testResult: null,
-        review: null,
+        testResult,
+        review,
       });
       if (!completionDecision.approved) {
         print('blocked', `Klaim selesai DITOLAK — ${completionDecision.reason}.`);
         pushHistory({ action: 'user_condition', condition: `[SISTEM: ACTION done DITOLAK: ${completionDecision.reason}. Buktikan dengan aksi nyata sebelum done.]` });
         continue;
       }
-      // M52: independent review — verdict berdasarkan bukti aktual, bukan klaim.
+      // M52: independent review sudah dievaluasi oleh completion gate.
       // Reviewer memeriksa: aksi gagal disembunyikan? klaim tanpa bukti? acceptance terpenuhi?
-      const review = runReview({ contract, history, summary: step.summary });
       if (review.verdict === REVIEW_VERDICT.REJECT) {
         print('blocked', `Review DITOLAK — ${review.findings.filter(f => f.severity === 'BLOCKER').length} blocker.`);
         review.findings.filter(f => f.severity === 'BLOCKER').slice(0, 4).forEach(f => printBlock(`  ✗ ${f.message}`, 2));
