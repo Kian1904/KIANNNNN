@@ -10,7 +10,7 @@ import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js
 import { callTool } from '../mcp/client.js';
 import { searchWeb } from './search.js';
 import { fetchWebPage, focusWebText } from './web-fetch.js'
-import { verifyAction, verifyCompletion } from './verifier.js';
+import { verifyAction } from './verifier.js';
 import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
 import { inspectTarget, describeTarget, rejectReason, rejectWriteReason, applyFileOp, applySafeFileOp, lintAfterWrite } from './file-ops.js';
@@ -21,7 +21,7 @@ import { contractBlocksCompletion } from './task-contract.js';
 import { TASK_STATUS, readJournal, replayJournal, taskPath, defaultJournalDir } from './task-journal.js';
 import { decideRecovery, buildRecoveryHint } from './recovery.js';
 import { detectTestRunner, buildTestCommand, parseTestOutput } from './test-orchestrator.js';
-import { runReview, REVIEW_VERDICT } from './review-engine.js';
+import { runReview } from './review-engine.js';
 import { wrapUntrusted, scanForInjection } from './prompt-shield.js';
 import { readEnv } from './env.js';
 import { packetFromHistory, buildEvidenceFallback } from './research-engine.js';
@@ -188,13 +188,6 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         pushHistory({ action: 'user_condition', condition: `[SISTEM: ACTION done DITOLAK. Checklist belum selesai: ${pending}. Selesaikan semua item dulu.]` });
         continue;
       }
-      const completion = verifyCompletion(history, step.summary);
-      if (!completion.ok) {
-        print('error', `Belum boleh selesai: ${completion.reason}`);
-        // Jangan percaya klaim done. Minta model satu langkah koreksi/verifikasi.
-        systemPromptOverride = `${systemPromptOverride || ''}\n\n[SISTEM VERIFIER: Klaim selesai DITOLAK: ${completion.reason}. Jangan ACTION: done dulu. Periksa ulang hasil aksi terakhir dan pilih aksi verifikasi/perbaikan yang konkret.]`;
-        continue;
-      }
       // M51: test orchestrator gate — kalau contract punya kriteria test dan
       // project punya test runner, jalankan test NYATA sebelum done diterima.
       // Hasilnya di-parse jadi structured result lalu masuk history sebagai bukti.
@@ -256,20 +249,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         pushHistory({ action: 'user_condition', condition: `[SISTEM: ACTION done DITOLAK: ${completionDecision.reason}. Buktikan dengan aksi nyata sebelum done.]` });
         continue;
       }
-      // M52: independent review sudah dievaluasi oleh completion gate.
-      // Reviewer memeriksa: aksi gagal disembunyikan? klaim tanpa bukti? acceptance terpenuhi?
-      if (review.verdict === REVIEW_VERDICT.REJECT) {
-        print('blocked', `Review DITOLAK — ${review.findings.filter(f => f.severity === 'BLOCKER').length} blocker.`);
-        review.findings.filter(f => f.severity === 'BLOCKER').slice(0, 4).forEach(f => printBlock(`  ✗ ${f.message}`, 2));
-        journalLog({ type: 'note', text: `review: REJECT — ${review.findings.filter(f => f.severity === 'BLOCKER').map(f => f.message).join('; ')}` });
-        pushHistory({
-          action: 'user_condition',
-          condition: `[SISTEM REVIEW: Klaim selesai DITOLAK oleh reviewer independen. ${review.findings.filter(f => f.severity === 'BLOCKER').map(f => f.message).join('; ')}. Perbaiki semua blocker sebelum ACTION: done.]`,
-        });
-        continue;
-      }
-      // Review APPROVE -> catat di journal
-      journalLog({ type: 'note', text: `review: APPROVE — ${review.verifiedActions}/${review.totalActions} aksi terverifikasi` });
+      // Completion gate sudah mengevaluasi review; di sini hanya catat hasilnya.
+      journalLog({ type: 'note', text: `review: ${review.verdict} — ${review.verifiedActions}/${review.totalActions} aksi terverifikasi` });
 
       actionIndicator('done');
       print('done', step.summary);
