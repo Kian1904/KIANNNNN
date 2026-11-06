@@ -10,6 +10,7 @@ import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js
 import { callTool } from '../mcp/client.js';
 import { executeBash } from './core/execution/bash.js';
 import { executeSafeMutation, executeDestructive, lintWrittenFile } from './core/execution/files.js';
+import { executeSearch, executeFetch } from './core/execution/web.js';
 import { searchWeb } from './search.js';
 import { fetchWebPage, focusWebText } from './web-fetch.js'
 import { verifyAction } from './verifier.js';
@@ -419,7 +420,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         const chosen = chooseOfficialUrl(candidates);
         if (chosen && budget.consume('fetch')) {
           print('info', `Batas search tercapai — ambil isi sumber: ${chosen}`);
-          const page = await fetchWebPage(chosen);
+          const page = await executeFetch(chosen);
           if (page.ok) {
             pushHistory({ action: 'web_fetch', url: page.url, summary: wrapUntrusted(focusWebText(page.text, instruction).slice(0, 30000), 'web_fetch', page.url) });
             actionIndicator('web_fetch', chosen);
@@ -456,7 +457,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
       print('web_search', step.query);
       try {
-        const { provider, results } = await searchWeb(step.query);
+        const { provider, results } = await executeSearch(step.query);
         print('sources', results.length ? results.map(r => r.url).join('\n') : '(tidak ada hasil)');
         const summary = results
           .map((r, idx) => `[${idx + 1}] ${r.title}\n${r.url}\n${r.snippet}`)
@@ -475,7 +476,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           let fetched = false;
           for (const chosen of ordered.slice(0, 3)) {
             print('info', `Dua search selesai — baca sumber terbaik: ${chosen}`);
-            const page = await fetchWebPage(chosen);
+            const page = await executeFetch(chosen);
             if (page.ok) {
               pushHistory({ action: 'web_fetch', url: page.url, summary: wrapUntrusted(focusWebText(page.text, instruction).slice(0, 30000), 'web_fetch', page.url) });
               actionIndicator('web_fetch', chosen);
@@ -509,7 +510,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       }
       actionIndicator('web_fetch', step.url);
       try {
-        const page = await fetchWebPage(step.url);
+        const page = await executeFetch(step.url);
         if (!page.ok) {
           print('search_err', `Fetch gagal (${page.error})${page.status ? ` HTTP ${page.status}` : ''}`);
           pushHistory({ action: 'web_fetch', url: step.url, summary: `ERROR: ${page.error}${page.status ? ` HTTP ${page.status}` : ''}`, verified: false, error: page.error });
