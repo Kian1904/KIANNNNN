@@ -22,7 +22,7 @@ import { executeDelegate } from './core/execution/delegate.js';
 import { createTaskState, allCompleted } from './task-state.js';
 import { contractBlocksCompletion } from './task-contract.js';
 import { TASK_STATUS, readJournal, replayJournal, taskPath, defaultJournalDir } from './task-journal.js';
-import { decideRecovery, buildRecoveryHint } from './recovery.js';
+import { decideBashRecovery, recoveryHint } from './core/execution/recovery.js';
 import { detectTestRunner, buildTestCommand, parseTestOutput } from './test-orchestrator.js';
 import { runReview } from './review-engine.js';
 import { wrapUntrusted, scanForInjection } from './prompt-shield.js';
@@ -561,7 +561,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           if (!lint.ok) {
             print('error', lint.error);
             pushHistory({ action: step.action, target: step.target, approved: true, verified: false, error: lint.error });
-            pushHistory({ action: 'user_condition', condition: buildRecoveryHint({ error: lint.error, action: step.action, attempt: consecutiveFailures + 1 }) });
+            pushHistory({ action: 'user_condition', condition: recoveryHint({ error: lint.error, action: step.action, attempt: consecutiveFailures + 1 }) });
             continue;
           }
         }
@@ -641,7 +641,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       if (!editLint.ok) {
         print('error', editLint.error);
         pushHistory(buildEditHistory(target, false, editLint.error));
-        pushHistory(historyCondition(buildRecoveryHint({ error: editLint.error, action: 'edit', attempt: consecutiveFailures + 1 })));
+        pushHistory(historyCondition(recoveryHint({ error: editLint.error, action: 'edit', attempt: consecutiveFailures + 1 })));
         continue;
       }
 
@@ -792,7 +792,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       // mengulang command yang sama.
       if (!bashVerification.ok) {
         consecutiveFailures++;
-        const decision = decideRecovery({
+        const decision = decideBashRecovery({
           error: `${result.stderr || ''} ${bashVerification.reason || ''} exit ${result.code}`,
           action: 'bash',
           command: step.command,
@@ -806,7 +806,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           pushHistory(historyNote(stopMsg))
           return stopMsg;
         }
-        pushHistory(historyCondition(buildRecoveryHint({
+        pushHistory(historyCondition(recoveryHint({
           error: `${result.stderr || ''} ${bashVerification.reason || ''}`,
           action: 'bash',
           attempt: consecutiveFailures,
