@@ -36,6 +36,7 @@ import { createTaskContext } from './core/task-context.js';
 import { createTaskRuntimeConfig } from './core/task-config.js';
 import { checkAllowedAction } from './core/action-policy.js';
 import { formatReadResult, normalizeListTarget } from './core/fs-actions.js';
+import { buildBashHistory, formatBashOutput } from './core/bash-actions.js';
 export { evidenceForContract };
 
 /**
@@ -797,11 +798,11 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       if (result.stderr) print('stderr', result.stderr);
 
       if (threadId) {
-        logStep({ threadId, role: 'assistant', content: `Command executed: ${step.command}\nExit code: ${result.code}\nStdout: ${result.stdout || '(kosong)'}`, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider, ...result }, reasoning: step.reasoning, approved: true });
+        logStep({ threadId, role: 'assistant', content: formatBashOutput(step.command, result), actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider, ...result }, reasoning: step.reasoning, approved: true });
       } else {
         logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider, ...result }, reasoning: step.reasoning, approved: true });
       }
-      pushHistory({ action: 'bash', command: step.command, approved: true, result, verified: bashVerification.ok, error: bashVerification.ok ? undefined : bashVerification.reason });
+      pushHistory(buildBashHistory(step.command, result, bashVerification));
 
       // M50: recovery engine. Bash yang gagal tidak cuma dicatat — diklasifikasi
       // lalu diberi hint spesifik supaya model memperbaiki penyebabnya, bukan
