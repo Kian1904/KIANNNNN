@@ -41,6 +41,7 @@ import { buildMutationPlan, buildMutationHistory } from './core/file-mutation.js
 import { buildEditHistory, buildDestructiveHistory, buildWebHistory, buildMcpHistory, buildChatHistory, buildRememberHistory, buildReadHistory, buildListHistory, buildDelegateHistory } from './core/action-results.js';
 import { buildEditPlan, buildDestructivePlan, destructiveVerb, formatDestructivePreview } from './core/file-execution.js';
 import { buildDelegateRequest, buildMcpRequest, buildSearchRecord, buildFetchRecord, normalizeDelegateError } from './core/external-actions.js';
+import { collectUrls, chooseOfficialUrl, buildForcedResearchPrompt } from './core/web-planning.js';
 import { evaluateCompletion } from './core/completion-gate.js';
 export { evidenceForContract };
 
@@ -412,11 +413,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         // Kalau model tetap memilih search setelah budget habis, pakai URL resmi yang
         // sudah ditemukan untuk fetch sekali—jangan buang hasil riset cuma karena
         // model mengulang ACTION web_search.
-        const candidates = history
-          .filter(h => h.action === 'web_search')
-          .flatMap(h => String(h.summary || '').match(/https?:\/\/[^\s)]+/g) || []);
-        const official = candidates.find(u => /bmkg\.go\.id|\.gov\.|\.go\.id\//i.test(u));
-        const chosen = official || candidates[0];
+        const candidates = collectUrls(history);
+        const chosen = chooseOfficialUrl(candidates);
         if (chosen && budget.consume('fetch')) {
           print('info', `Batas search tercapai — ambil isi sumber: ${chosen}`);
           const page = await fetchWebPage(chosen);
@@ -432,7 +430,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         print('info', `Budget search habis (${budget.snapshot().limits.searches}x) — memaksa rangkuman dari data yang ada.`);
         const researchPacket = packetFromHistory(history, instruction);
         const compactEvidence = compactResearchContext(researchPacket, { maxChars: 1500 });
-        const forcedInstruction = `${instruction}\n\n[SISTEM: Kamu sudah mencapai batas pencarian web. WAJIB ACTION: done sekarang. Tulis SUMMARY singkat dari evidence data yang sudah ada. Fokus pada angka, kondisi, lokasi, waktu, dan fakta yang menjawab pertanyaan user. Jangan menyalin menu/navigasi/URL mentah. Evidence terstruktur:\n${compactEvidence}\nDILARANG ACTION: web_search atau ACTION: mcp_call apapun di langkah ini.]`;
+        const forcedInstruction = buildForcedResearchPrompt(instruction, compactEvidence);
         const fr = await planStepWithRetry(askWithFallback, { instruction: forcedInstruction, fileSnapshot, history, agentMd, recentMemory, availableTools: toolsForAgent, webSearchCount, systemPromptOverride }, { maxAttempts: 2 });
         const forcedStep = fr.ok ? fr.step : { action: 'done', summary: '', reasoning: 'paksa selesai (model gak kooperatif)' };
         // Model gak kooperatif / summary kosong → jawab dari evidence terstruktur,
@@ -469,10 +467,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         // done pada kasus snippet yang cukup; fetch ini hanya memastikan riset
         // data-spesifik (cuaca/harga/status) gak berhenti di daftar URL.
         if (webSearchCount >= 2 && !history.some(h => h.action === 'web_fetch') && budget.consume('fetch')) {
-          const candidates = history
-            .filter(h => h.action === 'web_search')
-            .flatMap(h => String(h.summary || '').match(/https?:\/\/[^\s)]+/g) || []);
-          const official = candidates.find(u => /bmkg\.go\.id|\.gov\.|\.go\.id\//i.test(u));
+          const candidates = collectUrls(history);
+          const official = chooseOfficialUrl(candidates);
           const ordered = [...new Set([official, ...candidates].filter(Boolean))];
           let fetched = false;
           for (const chosen of ordered.slice(0, 3)) {
