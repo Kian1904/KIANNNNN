@@ -38,6 +38,7 @@ import { checkAllowedAction } from './core/action-policy.js';
 import { formatReadResult, normalizeListTarget } from './core/fs-actions.js';
 import { buildBashHistory, formatBashOutput } from './core/bash-actions.js';
 import { buildMutationPlan, buildMutationHistory } from './core/file-mutation.js';
+import { buildEditHistory, buildDestructiveHistory, buildWebHistory, buildMcpHistory, buildChatHistory, buildRememberHistory, buildReadHistory, buildListHistory, buildDelegateHistory } from './core/action-results.js';
 export { evidenceForContract };
 
 /**
@@ -286,7 +287,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       blank();
       printBlock(step.reply);
       blank();
-      pushHistory({ action: 'chat', reply: step.reply });
+      pushHistory(buildChatHistory(step.reply));
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: step.reply, actionType: 'chat', reasoning: step.reasoning });
       }
@@ -311,7 +312,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       const { label, content: preview } = formatReadResult(step.target, r);
       print('read', label);
       printBlock(preview);
-      pushHistory({ action: 'read', target: step.target, content: preview, range: { start: r.start, end: r.end, total: r.totalLines } });
+      pushHistory(buildReadHistory(step.target, preview, { start: r.start, end: r.end, total: r.totalLines }));
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `Read file: ${step.target}\n${preview}`, actionType: 'read', reasoning: step.reasoning });
       }
@@ -325,7 +326,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       const listing = listDirSafe(dir);
       print('list_dir', dir);
       printBlock(listing);
-      pushHistory({ action: 'list_dir', target: dir, listing });
+      pushHistory(buildListHistory(dir, listing));
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `Listed directory: ${dir}\n${listing}`, actionType: 'list_dir', reasoning: step.reasoning });
       }
@@ -337,7 +338,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       actionIndicator('remember', step.key);
       saveDecision({ key: step.key, value: step.value, context: instruction });
       print('remember', `${step.key}: ${step.value}`);
-      pushHistory({ action: 'remember', key: step.key, value: step.value });
+      pushHistory(buildRememberHistory(step.key, step.value));
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `Remembered: ${step.key} = ${step.value}`, actionType: 'remember', reasoning: step.reasoning });
       }
@@ -373,7 +374,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       });
       if (result.ok) {
         print('delegate_ok', `${step.agent}: ${result.summary.slice(0, 2000)}`);
-        pushHistory({ action: 'delegate', agent: step.agent, task: step.task, summary: result.summary, artifacts: result.artifacts || [], changed_files: result.changed_files || [], tests: result.tests || [], tests_passed: result.tests_passed === true, approved: true, verified: result.verified === true });
+        pushHistory(buildDelegateHistory(step.agent, step.task, { summary: result.summary, artifacts: result.artifacts || [], changed_files: result.changed_files || [], tests: result.tests || [], tests_passed: result.tests_passed === true, approved: true, verified: result.verified === true }));
       } else {
         print('delegate_err', `${step.agent}: ${result.error || 'gagal'}`);
         pushHistory({ action: 'delegate', agent: step.agent, task: step.task, approved: true, verified: false, error: result.error || 'gagal' });
@@ -390,7 +391,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         const result = await callTool(step.tool, step.toolArgs, toolsForAgent);
         print('mcp', 'Hasil:');
         printBlock(result.slice(0, 2500) + (result.length > 500 ? '...' : ''));
-        pushHistory({ action: 'mcp_call', tool: step.tool, result: wrapUntrusted(result, 'mcp_call', step.tool) });
+        pushHistory(buildMcpHistory(step.tool, wrapUntrusted(result, 'mcp_call', step.tool)));
         if (threadId) {
           logStep({ threadId, role: 'assistant', content: `Called tool: ${step.tool}\nResult: ${result.slice(0, 500)}${result.length > 500 ? '...' : ''}`, actionType: 'mcp_call', detail: { tool: step.tool, result }, reasoning: step.reasoning });
         }
@@ -473,7 +474,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         const summary = results
           .map((r, idx) => `[${idx + 1}] ${r.title}\n${r.url}\n${r.snippet}`)
           .join('\n\n');
-        pushHistory({ action: 'web_search', query: step.query, provider, summary: wrapUntrusted(summary || '(tidak ada hasil)', 'web_search', step.query) });
+        pushHistory({ ...buildWebHistory('web_search', step.query, wrapUntrusted(summary || '(tidak ada hasil)', 'web_search', step.query), results.length > 0, results.length > 0 ? undefined : 'search tidak menghasilkan sumber'), provider });
 
         // Safety net fleksibel: kalau sudah dua search dan belum pernah membaca
         // halaman, ambil satu sumber resmi terbaik. Model tetap boleh langsung
@@ -531,7 +532,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           printBlock(summary.slice(0, 800), 2);
           print('info', `Isi halaman disimpan ke history (${summary.length} karakter) — agent akan merangkum, bukan menyalin mentah.`);
           const fetchVerification = verifyAction({ action: 'web_fetch', text: summary });
-          pushHistory({ action: 'web_fetch', url: page.url, summary: focusWebText(summary, instruction).slice(0, 30000), verified: fetchVerification.ok, error: fetchVerification.ok ? undefined : fetchVerification.reason });
+          pushHistory(buildWebHistory('web_fetch', page.url, focusWebText(summary, instruction).slice(0, 30000), fetchVerification.ok, fetchVerification.reason));
           if (threadId) {
             logStep({ threadId, role: 'assistant', content: `Fetched: ${page.url}`, actionType: 'web_fetch', detail: { url: page.url, status: page.status, chars: summary.length }, reasoning: step.reasoning });
           }
@@ -651,7 +652,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       const editLint = lintAfterWrite(target, oldContent);
       if (!editLint.ok) {
         print('error', editLint.error);
-        pushHistory({ action: 'edit', target, approved: true, verified: false, error: editLint.error });
+        pushHistory(buildEditHistory(target, false, editLint.error));
         pushHistory({ action: 'user_condition', condition: buildRecoveryHint({ error: editLint.error, action: 'edit', attempt: consecutiveFailures + 1 }) });
         continue;
       }
@@ -660,7 +661,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       print(editVerification.ok ? 'verify_ok' : 'error', editVerification.reason);
       print('edit_ok', `${target} ${existedBefore ? 'diupdate' : 'dibuat'}.`);
       lastTarget = target;
-      pushHistory({ action: 'edit', target, approved: true, verified: editVerification.ok, error: editVerification.ok ? undefined : editVerification.reason });
+      pushHistory(buildEditHistory(target, editVerification.ok, editVerification.reason));
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `File edited: ${target}`, actionType: 'edit', detail: { target, applied: true, isNewFile: !existedBefore }, reasoning: step.reasoning });
       }
@@ -747,7 +748,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         : step.action === 'rename' ? `di-rename ke ${step.dest}` : `dipindah ke ${step.dest}`;
       print(`${step.action}_ok`, `${step.target} ${verb}.`);
       lastTarget = step.dest || step.target;
-      pushHistory({ action: step.action, target: step.target, dest: step.dest, approved: true });
+      pushHistory(buildDestructiveHistory(step.action, step.target, step.dest, true));
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `${step.action} applied: ${step.target}`, actionType: step.action, detail: { target: step.target, dest: step.dest, applied: true }, reasoning: step.reasoning });
       }
