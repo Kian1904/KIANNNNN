@@ -37,6 +37,7 @@ import { createTaskRuntimeConfig } from './core/task-config.js';
 import { checkAllowedAction } from './core/action-policy.js';
 import { formatReadResult, normalizeListTarget } from './core/fs-actions.js';
 import { buildBashHistory, formatBashOutput } from './core/bash-actions.js';
+import { buildMutationPlan, buildMutationHistory } from './core/file-mutation.js';
 export { evidenceForContract };
 
 /**
@@ -561,7 +562,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       if (!opApproval.approved) return `${step.action} dibatalkan, task dihentikan.`;
       try {
         const oldContent = fs.existsSync(step.target) ? fs.readFileSync(step.target, 'utf8') : '';
-        const content = step.action === 'append' ? oldContent + step.content : step.content;
+        const mutation = buildMutationPlan({ action: step.action, target: step.target, before: oldContent, content: step.content });
+        const content = mutation.finalContent;
         if (step.action !== 'mkdir') saveSnapshot({ filepath: step.target, content: oldContent, isNewFile: !fs.existsSync(step.target) });
         const result = applySafeFileOp(step.action, step.target, step.content);
         if (!result.ok) return `${step.action} gagal: ${result.error}`;
@@ -578,7 +580,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         const actual = step.action === 'mkdir' ? fs.existsSync(step.target) : fs.readFileSync(step.target, 'utf8');
         const verification = step.action === 'mkdir' ? { ok: fs.statSync(step.target).isDirectory(), reason: 'direktori terbukti ada' } : verifyAction({ action: 'edit', target: step.target, expectedContent: content, actualContent: actual });
         print(verification.ok ? 'verify_ok' : 'error', verification.reason);
-        pushHistory({ action: step.action, target: step.target, approved: true, verified: verification.ok, error: verification.ok ? undefined : verification.reason });
+        pushHistory(buildMutationHistory(step.action, step.target, result, verification));
         continue;
       } catch (err) {
         pushHistory({ action: step.action, target: step.target, verified: false, error: err.message });
