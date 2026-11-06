@@ -1,16 +1,16 @@
 # Module classification
 
-This is an evidence-based snapshot from runtime imports and tests. A passing test alone does not make a module core.
+Evidence snapshot: runtime imports were inspected with `search_files`; focused runtime and boundary tests were rerun after each boundary change. Test coverage alone does not make a module core.
 
 ## CORE
 
-- `src/run-task.js` — primary single-agent loop
+- `src/run-task.js` — primary single-agent coordinator
 - `src/providers.js`, `src/plan.js` — model and action protocol
-- `src/file-ops.js`, `src/utils/fs.js`, `src/bash.js` — workspace and shell tools
-- `src/verifier.js`, `src/core/completion-gate.js` — verification and completion decision
+- `src/file-ops.js`, `src/utils/fs.js`, `src/bash.js` — workspace/shell primitives
+- `src/verifier.js`, `src/core/completion-gate.js` — verification/completion
 - `src/db.js`, `src/task-journal.js` — persistence
 - `src/approval.js`, `src/approval-queue.js` — permission handling
-- `src/core/*` — pure boundaries used by the core loop
+- `src/core/*` — pure/execution boundaries now called by the coordinator
 
 ## OPTIONAL
 
@@ -20,17 +20,11 @@ This is an evidence-based snapshot from runtime imports and tests. A passing tes
 - `src/optional/routing.js` → `src/routing.js`
 - `src/orchestrator.js`, squad UI, MCP catalog, Telegram adapter
 
-These are connected through optional adapters but are not part of the minimal architecture contract.
+Optional adapters are reachable by user-facing flows but are not part of the minimal single-agent contract.
 
-## TEST-COVERED OPTIONAL / EXPERIMENTAL
+## TEST-ONLY / EXPERIMENTAL CANDIDATES
 
-- squad, worker lifecycle, artifacts/shared artifacts, routing, research, delegation, recovery, budget and observability helpers
-
-Their tests prove local contracts, not that each feature must remain in the product core.
-
-## DEAD CANDIDATES — NOT DELETED YET
-
-These require one more import/history review before deletion:
+These currently have tests or historical milestone references but no direct runtime import found in the inspected `src/` import graph:
 
 - `src/artifact-registry.js`
 - `src/shared-artifacts.js`
@@ -41,5 +35,6 @@ These require one more import/history review before deletion:
 - `src/install-check.js`
 - `src/task-progress.js`
 - `src/task-resume.js`
+- `src/budget-engine.js`
 
-Deletion is deferred until their test-only status and public command expectations are explicitly settled.
+They are intentionally not deleted in this pass because tests, commands, or external consumers may still import them. Deletion requires an explicit compatibility decision.

@@ -64,7 +64,7 @@ They remain available for tests and experiments, but must not silently become re
 
 ## Current known debt
 
-- `src/run-task.js` still owns too many side-effect concerns; execution-handler extraction remains the next major refactor.
+- `src/run-task.js` still owns coordinator/UI/history concerns; execution calls now sit behind injectable boundaries.
 - Several modules are test-covered but not connected to the runtime path.
 - The test suite is environment-sensitive: Node must provide `node:sqlite` and network-dependent tests may skip or vary.
 - `SPEC.md` contains historical milestone claims; runtime behavior and fresh test output take precedence.
