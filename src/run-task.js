@@ -42,6 +42,7 @@ import { buildEditHistory, buildDestructiveHistory, buildWebHistory, buildMcpHis
 import { buildEditPlan, buildDestructivePlan, destructiveVerb, formatDestructivePreview } from './core/file-execution.js';
 import { buildDelegateRequest, buildMcpRequest, buildSearchRecord, buildFetchRecord, normalizeDelegateError } from './core/external-actions.js';
 import { collectUrls, chooseOfficialUrl, buildForcedResearchPrompt } from './core/web-planning.js';
+import { historyError, historyCondition, historyNote } from './core/history-actions.js';
 import { evaluateCompletion } from './core/completion-gate.js';
 export { evidenceForContract };
 
@@ -385,7 +386,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         }
       } catch (err) {
         print('mcp_err', err.message);
-        pushHistory({ action: 'mcp_call', tool: step.tool, result: `ERROR: ${err.message}` });
+        pushHistory(historyError('mcp_call', err.message, { tool: step.tool, result: `ERROR: ${err.message}` }));
         if (threadId) {
           logStep({ threadId, role: 'assistant', content: `Tool error: ${step.tool}\nError: ${err.message}`, actionType: 'mcp_call', detail: { tool: step.tool, error: err.message }, reasoning: step.reasoning });
         }
@@ -502,7 +503,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     if (step.action === 'web_fetch') {
       if (!budget.consume('fetch')) {
         print('blocked', `Budget fetch habis (${budget.snapshot().limits.fetches}x) — pakai data yang sudah ada di history.`);
-        pushHistory({ action: 'user_condition', condition: `Budget web_fetch habis. Jangan fetch lagi; rangkum evidence yang sudah ada.` });
+        pushHistory(historyCondition(`Budget web_fetch habis. Jangan fetch lagi; rangkum evidence yang sudah ada.`));
         continue;
       }
       actionIndicator('web_fetch', step.url);
@@ -638,7 +639,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       if (!editLint.ok) {
         print('error', editLint.error);
         pushHistory(buildEditHistory(target, false, editLint.error));
-        pushHistory({ action: 'user_condition', condition: buildRecoveryHint({ error: editLint.error, action: 'edit', attempt: consecutiveFailures + 1 }) });
+        pushHistory(historyCondition(buildRecoveryHint({ error: editLint.error, action: 'edit', attempt: consecutiveFailures + 1 })));
         continue;
       }
 
@@ -800,14 +801,14 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           const stopMsg = `Task dihentikan oleh recovery engine: ${decision.reason}`;
           print('stop', stopMsg);
           journalLog({ type: 'status', status: TASK_STATUS.FAILED, reason: decision.reason });
-          pushHistory({ action: 'note', text: stopMsg });
+          pushHistory(historyNote(stopMsg))
           return stopMsg;
         }
-        pushHistory({ action: 'user_condition', condition: buildRecoveryHint({
+        pushHistory(historyCondition(buildRecoveryHint({
           error: `${result.stderr || ''} ${bashVerification.reason || ''}`,
           action: 'bash',
           attempt: consecutiveFailures,
-        }) });
+        })));
       } else {
         consecutiveFailures = 0;
       }
