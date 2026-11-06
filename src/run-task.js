@@ -9,6 +9,7 @@ import { runCommand } from './bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js';
 import { callTool } from '../mcp/client.js';
 import { executeBash } from './core/execution/bash.js';
+import { executeSafeMutation, executeDestructive, lintWrittenFile } from './core/execution/files.js';
 import { searchWeb } from './search.js';
 import { fetchWebPage, focusWebText } from './web-fetch.js'
 import { verifyAction } from './verifier.js';
@@ -551,11 +552,11 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         const mutation = buildMutationPlan({ action: step.action, target: step.target, before: oldContent, content: step.content });
         const content = mutation.finalContent;
         if (step.action !== 'mkdir') saveSnapshot({ filepath: step.target, content: oldContent, isNewFile: !fs.existsSync(step.target) });
-        const result = applySafeFileOp(step.action, step.target, step.content);
+        const result = executeSafeMutation(step.action, step.target, step.content);
         if (!result.ok) return `${step.action} gagal: ${result.error}`;
         // M44: auto-lint gate — cek syntax file JS setelah tulis, rollback kalau error
         if (step.action !== 'mkdir') {
-          const lint = lintAfterWrite(step.target, oldContent);
+          const lint = lintWrittenFile(step.target, oldContent);
           if (!lint.ok) {
             print('error', lint.error);
             pushHistory({ action: step.action, target: step.target, approved: true, verified: false, error: lint.error });
@@ -635,7 +636,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         return `Edit gagal: ${err.message}`;
       }
       // M44: auto-lint gate untuk edit
-      const editLint = lintAfterWrite(target, oldContent);
+      const editLint = lintWrittenFile(target, oldContent);
       if (!editLint.ok) {
         print('error', editLint.error);
         pushHistory(buildEditHistory(target, false, editLint.error));
@@ -716,7 +717,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         }
       }
 
-      const res = applyFileOp(step.action, step.target, step.dest);
+      const res = executeDestructive(step.action, step.target, step.dest);
       if (!res.ok) {
         print('error', `Gagal ${step.action} ${step.target}: ${res.error}`);
         pushHistory({ action: step.action, target: step.target, approved: true, error: res.error });
