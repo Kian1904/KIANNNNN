@@ -39,6 +39,7 @@ import { formatReadResult, normalizeListTarget } from './core/fs-actions.js';
 import { buildBashHistory, formatBashOutput } from './core/bash-actions.js';
 import { buildMutationPlan, buildMutationHistory } from './core/file-mutation.js';
 import { buildEditHistory, buildDestructiveHistory, buildWebHistory, buildMcpHistory, buildChatHistory, buildRememberHistory, buildReadHistory, buildListHistory, buildDelegateHistory } from './core/action-results.js';
+import { evaluateCompletion } from './core/completion-gate.js';
 export { evidenceForContract };
 
 /**
@@ -238,15 +239,18 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       const gateResults = evidenceForContract(history, contract);
       contractResults.clear();
       for (const res of gateResults) contractResults.set(res.id, res);
-      const contractGate = contractBlocksCompletion(contract, gateResults);
-      if (contractGate.blocked) {
-        const pendingText = contractGate.pending.slice(0, 4).join(' | ');
-        print('blocked', `Klaim selesai DITOLAK — ${contractGate.reason}.`);
-        contractGate.pending.slice(0, 4).forEach(t => printBlock(`• ${t}`, 2));
-        pushHistory({
-          action: 'user_condition',
-          condition: `[SISTEM: ACTION done DITOLAK oleh kontrak task. ${contractGate.reason}: ${pendingText}. Kamu WAJIB membuktikan kriteria ini dengan aksi nyata (bukan klaim) sebelum done.]`,
-        });
+      const completionDecision = evaluateCompletion({
+        checklist: taskState,
+        summary: step.summary,
+        history,
+        contract,
+        evidence: gateResults,
+        testResult: null,
+        review: null,
+      });
+      if (!completionDecision.approved) {
+        print('blocked', `Klaim selesai DITOLAK — ${completionDecision.reason}.`);
+        pushHistory({ action: 'user_condition', condition: `[SISTEM: ACTION done DITOLAK: ${completionDecision.reason}. Buktikan dengan aksi nyata sebelum done.]` });
         continue;
       }
       // M52: independent review — verdict berdasarkan bukti aktual, bukan klaim.
