@@ -18,7 +18,7 @@ import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
 import { inspectTarget, describeTarget, rejectReason, rejectWriteReason, applyFileOp, applySafeFileOp, lintAfterWrite } from './file-ops.js';
 import { preflightEnvironment } from './environment.js';
-import { delegateTask } from './optional/delegation.js';
+import { executeDelegate } from './core/execution/delegate.js';
 import { createTaskState, allCompleted } from './task-state.js';
 import { contractBlocksCompletion } from './task-contract.js';
 import { TASK_STATUS, readJournal, replayJournal, taskPath, defaultJournalDir } from './task-journal.js';
@@ -360,7 +360,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         continue;
       }
       const delegateRequest = buildDelegateRequest(step.agent, step.task, process.cwd());
-      const result = await delegateTask(delegateRequest.agent, delegateRequest.task, delegateRequest.options);
+      const result = await executeDelegate(delegateRequest.agent, delegateRequest.task, delegateRequest.options);
       if (result.ok) {
         print('delegate_ok', `${step.agent}: ${result.summary.slice(0, 2000)}`);
         pushHistory(buildDelegateHistory(step.agent, step.task, { summary: result.summary, artifacts: result.artifacts || [], changed_files: result.changed_files || [], tests: result.tests || [], tests_passed: result.tests_passed === true, approved: true, verified: result.verified === true }));
