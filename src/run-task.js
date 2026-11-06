@@ -7,10 +7,10 @@ import { planStep, planStepWithRetry, buildHistoryText } from './plan.js';
 import { showDiff } from './diff.js';
 import { runCommand } from './bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js';
-import { callTool } from '../mcp/client.js';
 import { executeBash } from './core/execution/bash.js';
 import { executeSafeMutation, executeDestructive, lintWrittenFile } from './core/execution/files.js';
 import { executeSearch, executeFetch } from './core/execution/web.js';
+import { executeMcp } from './core/execution/mcp.js';
 import { searchWeb } from './search.js';
 import { fetchWebPage, focusWebText } from './web-fetch.js'
 import { verifyAction } from './verifier.js';
@@ -379,7 +379,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       print('mcp', `Memanggil tool: ${step.tool}`);
       try {
         const mcpRequest = buildMcpRequest(step.tool, step.toolArgs);
-        const result = await callTool(mcpRequest.tool, mcpRequest.args, toolsForAgent);
+        const result = await executeMcp(mcpRequest.tool, mcpRequest.args, toolsForAgent);
         print('mcp', 'Hasil:');
         printBlock(result.slice(0, 2500) + (result.length > 500 ? '...' : ''));
         pushHistory(buildMcpHistory(step.tool, wrapUntrusted(result, 'mcp_call', step.tool)));
