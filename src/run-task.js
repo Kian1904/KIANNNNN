@@ -39,6 +39,7 @@ import { formatReadResult, normalizeListTarget } from './core/fs-actions.js';
 import { buildBashHistory, formatBashOutput } from './core/bash-actions.js';
 import { buildMutationPlan, buildMutationHistory } from './core/file-mutation.js';
 import { buildEditHistory, buildDestructiveHistory, buildWebHistory, buildMcpHistory, buildChatHistory, buildRememberHistory, buildReadHistory, buildListHistory, buildDelegateHistory } from './core/action-results.js';
+import { buildEditPlan, buildDestructivePlan, destructiveVerb, formatDestructivePreview } from './core/file-execution.js';
 import { evaluateCompletion } from './core/completion-gate.js';
 export { evidenceForContract };
 
@@ -597,6 +598,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
       const existedBefore = fs.existsSync(target);
       const oldContent = existedBefore ? fs.readFileSync(target, 'utf8') : '';
+      const editPlan = buildEditPlan(target, oldContent, step.new_content);
 
       print('diff', target);
       printBlock(showDiff(oldContent, step.new_content));
@@ -620,7 +622,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       // jangan tulis tanpa jaring pengaman rollback.
       try {
         saveSnapshot({ filepath: target, content: oldContent, isNewFile: !existedBefore });
-        print('snapshot', existedBefore ? `${target} disimpan.` : `${target} (file baru) — rollback = hapus file.`);
+        print('snapshot', editPlan.existedBefore ? `${target} disimpan.` : `${target} (file baru) — rollback = hapus file.`);
       } catch (err) {
         print('error', `Gagal simpan snapshot: ${err.message} — edit DIBATALKAN.`);
         return 'Edit dibatalkan: snapshot gagal disimpan.';
@@ -673,6 +675,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       }
 
       const info = inspectTarget(step.target);
+      const destructivePlan = buildDestructivePlan(step.action, step.target, step.dest, info);
       const reject = rejectReason(step.target, info);
       if (reject) {
         print('blocked', `Tidak bisa ${step.action} ${step.target}: ${reject}`);
@@ -686,16 +689,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       // Tampilkan APA yang bakal kena, jangan cuma nama file. Hapus file
       // tanpa nunjukin isinya = user approve sesuatu yang dia gak liat.
       print('diff', step.dest ? `${step.target} → ${step.dest}` : step.target);
-      const desc = describeTarget(step.target, info);
-      if (info.kind === 'file_binary') {
-        printBlock(desc);
-      } else if (step.action === 'delete' && info.content !== null && info.content !== undefined) {
-        const previewLines = (info.preview || '').split('\n');
-        const body = previewLines.map((l, i) => `  ${i + 1} | ${l}`).join('\n');
-        printBlock(`${desc}\n\nIsi yang bakal DIHAPUS:\n${body}${info.more > 0 ? `\n  ... (${info.more} baris lagi)` : ''}`);
-      } else {
-        printBlock(desc);
-      }
+      const desc = describeTarget(destructivePlan.target, destructivePlan.info);
+      printBlock(formatDestructivePreview({ action: destructivePlan.action, target: destructivePlan.target, info: destructivePlan.info, description: desc }));
       sep();
 
       const opApproval = await askApproval(step.action);
@@ -731,8 +726,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         return `${step.action} gagal: ${res.error}`;
       }
 
-      const verb = step.action === 'delete' ? 'dihapus'
-        : step.action === 'rename' ? `di-rename ke ${step.dest}` : `dipindah ke ${step.dest}`;
+      const verb = destructiveVerb(step.action, step.dest);
       print(`${step.action}_ok`, `${step.target} ${verb}.`);
       lastTarget = step.dest || step.target;
       pushHistory(buildDestructiveHistory(step.action, step.target, step.dest, true));
