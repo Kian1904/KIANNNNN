@@ -8,6 +8,7 @@ import { showDiff } from './diff.js';
 import { runCommand } from './bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js';
 import { callTool } from '../mcp/client.js';
+import { executeBash } from './core/execution/bash.js';
 import { searchWeb } from './search.js';
 import { fetchWebPage, focusWebText } from './web-fetch.js'
 import { verifyAction } from './verifier.js';
@@ -771,7 +772,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         pushHistory({ action: 'user_condition', condition: bashApproval.condition });
       }
 
-      const result = await runCommand(step.command);
+      const result = await executeBash(step.command);
       const bashVerification = verifyAction({ action: 'bash', result });
       print(bashVerification.ok ? 'verify_ok' : 'error', bashVerification.reason);
       print('exit_code', `${result.code}  stdout: ${result.stdout || '(kosong)'}`);
