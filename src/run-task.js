@@ -35,6 +35,7 @@ import { evidenceForContract } from './core/evidence.js';
 import { createTaskContext } from './core/task-context.js';
 import { createTaskRuntimeConfig } from './core/task-config.js';
 import { checkAllowedAction } from './core/action-policy.js';
+import { formatReadResult, normalizeListTarget } from './core/fs-actions.js';
 export { evidenceForContract };
 
 /**
@@ -305,10 +306,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       // dia bisa set step.limit + step.offset. Default 400 baris dengan nomor
       // baris — biar bug di baris 500 KELIHATAN, gak ketutup truncate 2000 char.
       const r = readFileRange(step.target, step.offset || 1, step.limit || 400);
-      const preview = r.content;
-      const label = r.ok && r.totalLines > (r.end - r.start + 1)
-        ? `${step.target} (baris ${r.start}-${r.end} dari ${r.totalLines})`
-        : step.target;
+      const { label, content: preview } = formatReadResult(step.target, r);
       print('read', label);
       printBlock(preview);
       pushHistory({ action: 'read', target: step.target, content: preview, range: { start: r.start, end: r.end, total: r.totalLines } });
@@ -321,8 +319,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     // --- LIST_DIR ---
     if (step.action === 'list_dir') {
       actionIndicator('list_dir', step.target);
-      const listing = listDirSafe(step.target);
-      const dir = (step.target || '.').trim();
+      const dir = normalizeListTarget(step.target);
+      const listing = listDirSafe(dir);
       print('list_dir', dir);
       printBlock(listing);
       pushHistory({ action: 'list_dir', target: dir, listing });
