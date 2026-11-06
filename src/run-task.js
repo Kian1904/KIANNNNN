@@ -34,6 +34,7 @@ const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:task]', ...args); };
 import { evidenceForContract } from './core/evidence.js';
 import { createTaskContext } from './core/task-context.js';
 import { createTaskRuntimeConfig } from './core/task-config.js';
+import { checkAllowedAction } from './core/action-policy.js';
 export { evidenceForContract };
 
 /**
@@ -153,12 +154,13 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     dbg('Parsed step:', JSON.stringify({ action: step.action, target: step.target, tool: step.tool }).replace(/undefined/g, '-'));
 
     // --- WHITELIST AGENT: tolak aksi di luar kapasitas role ini ---
-    if (allowedActions && step.action !== 'done' && !allowedActions.includes(step.action)) {
+    const actionPolicy = checkAllowedAction(agentConfig, step.action);
+    if (!actionPolicy.allowed) {
       blockedCount++;
-      print('blocked', `Agent "${agentConfig.name}" tidak boleh ACTION: ${step.action}. Diizinkan: ${allowedActions.join(', ')}.`);
+      print('blocked', actionPolicy.reason);
       pushHistory({
         action: 'user_condition',
-        condition: `ACTION ${step.action} TIDAK DIIZINKAN untuk role ${agentConfig.name}. Pilih salah satu dari: ${allowedActions.join(', ')}, atau done.`
+        condition: actionPolicy.reason
       });
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `Blocked disallowed action ${step.action} for agent ${agentConfig.name}`, actionType: 'blocked', reasoning: step.reasoning, approved: false });
