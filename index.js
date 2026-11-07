@@ -1,5 +1,8 @@
 import 'dotenv/config';
+import { discoverWorkspaceRoot } from './src/core/workspace.js';
 import { startREPL } from './src/repl.js';
+
+discoverWorkspaceRoot();
 
 // Global error handler
 process.on('uncaughtException', (err) => {
