@@ -38,6 +38,7 @@ import { discoverWorkspaceRoot, getWorkspaceRoot, resolveWorkspacePath } from '.
 import { createTaskRuntimeConfig } from './core/task-config.js';
 import { checkAllowedAction } from './core/action-policy.js';
 import { executeRead, executeListDir } from './core/execution/read.js';
+import { executeRemember } from './core/execution/memory.js';
 import { buildBashHistory, formatBashOutput } from './core/bash-actions.js';
 import { buildMutationPlan, buildMutationHistory } from './core/file-mutation.js';
 import { buildEditHistory, buildDestructiveHistory, buildMcpHistory, buildChatHistory, buildRememberHistory, buildReadHistory, buildListHistory, buildDelegateHistory } from './core/action-results.js';
@@ -330,7 +331,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     // --- REMEMBER ---
     if (step.action === 'remember') {
       actionIndicator('remember', step.key);
-      saveDecision({ key: step.key, value: step.value, context: instruction });
+      executeRemember(step.key, step.value, instruction);
       print('remember', `${step.key}: ${step.value}`);
       pushHistory(buildRememberHistory(step.key, step.value));
       if (threadId) {
