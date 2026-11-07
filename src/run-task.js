@@ -586,6 +586,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     if (step.action === 'edit') {
       actionIndicator('edit', step.target);
       const target = step.target;
+      const targetPath = resolveWorkspacePath(target);
 
       // Guard EKSPLISIT: readFileSafe menolak di jalur BACA, tapi tulis butuh cek
       // sendiri — tanpa ini path terblokir (.env, .git, keluar root) tetap ke-tulis.
@@ -598,8 +599,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         continue;
       }
 
-      const existedBefore = fs.existsSync(target);
-      const oldContent = existedBefore ? fs.readFileSync(target, 'utf8') : '';
+      const existedBefore = fs.existsSync(targetPath);
+      const oldContent = existedBefore ? fs.readFileSync(targetPath, 'utf8') : '';
       const editPlan = buildEditPlan(target, oldContent, step.new_content);
 
       print('diff', target);
@@ -631,9 +632,9 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       }
 
       try {
-        const parent = path.dirname(target);
+        const parent = path.dirname(targetPath);
         if (parent && !fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true });
-        fs.writeFileSync(target, step.new_content, 'utf8');
+        fs.writeFileSync(targetPath, step.new_content, 'utf8');
       } catch (err) {
         print('error', `Gagal menulis ${target}: ${err.message}`);
         pushHistory({ action: 'edit', target, approved: true, error: err.message });
@@ -648,7 +649,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         continue;
       }
 
-      const editVerification = verifyAction({ action: 'edit', target, expectedContent: step.new_content, actualContent: fs.readFileSync(target, 'utf8') });
+      const editVerification = verifyAction({ action: 'edit', target, expectedContent: step.new_content, actualContent: fs.readFileSync(targetPath, 'utf8') });
       print(editVerification.ok ? 'verify_ok' : 'error', editVerification.reason);
       print('edit_ok', `${target} ${existedBefore ? 'diupdate' : 'dibuat'}.`);
       lastTarget = target;
