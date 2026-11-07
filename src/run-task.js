@@ -5,7 +5,6 @@ import path from 'path';
 import { askWithFallback, fallbackState } from './providers.js';
 import { planStepWithRetry, buildHistoryText } from './plan.js';
 import { showDiff } from './diff.js';
-import { runCommand } from './bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js';
 import { executeBash } from './core/execution/bash.js';
 import { executeSafeMutation, executeDestructive, lintWrittenFile } from './core/execution/files.js';
@@ -208,7 +207,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           const cmd = buildTestCommand(detected);
           print('info', `M51 test orchestrator: menjalankan ${cmd}`);
           try {
-            const result = await runCommand(cmd);
+            const result = await executeBash(cmd);
             const parsed = parseTestOutput(result.stdout || '', detected.runner);
             const testVerified = result.code === 0 && parsed.passed;
             testResult = { required: true, passed: testVerified, summary: parsed.summary, failures: parsed.failures, runner: detected.runner };
