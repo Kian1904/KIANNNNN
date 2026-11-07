@@ -37,7 +37,7 @@ import { createTaskContext } from './core/task-context.js';
 import { discoverWorkspaceRoot, getWorkspaceRoot, resolveWorkspacePath } from './core/workspace.js';
 import { createTaskRuntimeConfig } from './core/task-config.js';
 import { checkAllowedAction } from './core/action-policy.js';
-import { formatReadResult, normalizeListTarget } from './core/fs-actions.js';
+import { executeRead, executeListDir } from './core/execution/read.js';
 import { buildBashHistory, formatBashOutput } from './core/bash-actions.js';
 import { buildMutationPlan, buildMutationHistory } from './core/file-mutation.js';
 import { buildEditHistory, buildDestructiveHistory, buildMcpHistory, buildChatHistory, buildRememberHistory, buildReadHistory, buildListHistory, buildDelegateHistory } from './core/action-results.js';
@@ -303,8 +303,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       // Offset/limit opsional dari model: kalau dia mau lanjut baca file gede,
       // dia bisa set step.limit + step.offset. Default 400 baris dengan nomor
       // baris — biar bug di baris 500 KELIHATAN, gak ketutup truncate 2000 char.
-      const r = readFileRange(step.target, step.offset || 1, step.limit || 400);
-      const { label, content: preview } = formatReadResult(step.target, r);
+      const readResult = executeRead(step.target, step.offset || 1, step.limit || 400);
+      const { result: r, label, content: preview } = readResult;
       print('read', label);
       printBlock(preview);
       pushHistory(buildReadHistory(step.target, preview, { start: r.start, end: r.end, total: r.totalLines }));
@@ -317,8 +317,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     // --- LIST_DIR ---
     if (step.action === 'list_dir') {
       actionIndicator('list_dir', step.target);
-      const dir = normalizeListTarget(step.target);
-      const listing = listDirSafe(dir);
+      const { target: dir, listing } = executeListDir(step.target);
       print('list_dir', dir);
       printBlock(listing);
       pushHistory(buildListHistory(dir, listing));
