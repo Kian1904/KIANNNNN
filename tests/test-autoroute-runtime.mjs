@@ -37,7 +37,7 @@ function check(label, cond, extra = '') {
 /** Jalanin REPL buat beberapa baris input, balikin stdout+stderr mentah.
  *  PENTING: kasih jeda antar baris. REPL pakai TUI yang nge-overwrite baris,
  *  jadi kalau semua input dikirim sekaligus cuma baris pertama yang diproses. */
-async function runREPL(lines, { settleMs = 3000, timeoutMs = 30000 } = {}) {
+async function runREPL(lines, { settleMs = 3000, timeoutMs = 30000, waitFor = [] } = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['index.js'], {
       cwd: ROOT,
@@ -45,16 +45,24 @@ async function runREPL(lines, { settleMs = 3000, timeoutMs = 30000 } = {}) {
       env: { ...process.env, K_NO_COLOR: '1' },
     });
     let out = '';
+    let sent = 0;
     child.stdout.on('data', d => { out += d.toString(); });
     child.stderr.on('data', d => { out += d.toString(); });
+    const waitForOutput = async (pattern, maxWaitMs = 8000) => {
+      const deadline = Date.now() + maxWaitMs;
+      while (Date.now() < deadline && !pattern.test(strip(out))) await new Promise(r => setTimeout(r, 50));
+      return pattern.test(strip(out));
+    };
     const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, timeoutMs);
     child.on('close', () => { clearTimeout(timer); resolve(out); });
 
     (async () => {
-      await new Promise(r => setTimeout(r, 3000)); // tunggu banner + prompt siap
+      await waitForOutput(/│\s*>\s*$/m, 15000);
       for (const line of lines) {
         child.stdin.write(line + '\n');
-        await new Promise(r => setTimeout(r, settleMs));
+        const pattern = waitFor[sent++];
+        if (pattern) await waitForOutput(pattern);
+        else await new Promise(r => setTimeout(r, settleMs));
       }
       try { child.stdin.end(); } catch {}
       setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 1200);
@@ -66,7 +74,7 @@ const strip = (s) => s.replace(/\x1b\[[0-9;]*m/g, '').replace(/\r/g, '');
 
 console.log('\n[1] /route command jalan di REPL beneran');
 {
-  const out = strip(await runREPL(['/route', '/exit']));
+  const out = strip(await runREPL(['/route', '/exit'], { waitFor: [/Auto-routing ke squad: (AKTIF|MATI)/] }));
   check('nampilin status auto-routing', /Auto-routing ke squad: (AKTIF|MATI)/.test(out));
   check('nampilin cara kontrol', /\/route on \| \/route off/.test(out));
 }
@@ -77,7 +85,7 @@ console.log('\n[2] /route test ngeksekusi heuristik (bukan crash)');
     '/route test riset cara kerja X lalu bikin kodenya',
     '/route test baca src/ui.js terus ringkas',
     '/exit',
-  ], { settleMs: 1300, timeoutMs: 40000 }));
+  ], { settleMs: 1300, timeoutMs: 40000, waitFor: [/Hasil routing: SQUAD/, /Hasil routing: SINGLE/] }));
   check('task kompleks → SQUAD', /Hasil routing: SQUAD/.test(out));
   check('task simpel → SINGLE', /Hasil routing: SINGLE/.test(out));
   check('nampilin confidence', /confidence\s*:\s*(high|medium|low)/.test(out));
@@ -157,7 +165,10 @@ console.log('\n[4] Task simpel TIDAK dirouting ke squad walau autoRoute on');
   await new Promise(r => setTimeout(r, 3000));
   // Task simpel + perintah /mode → TIDAK boleh ke squad.
   child.stdin.write('/mode\n');
-  await new Promise(r => setTimeout(r, 3000));
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline && !/Mode approval aktif/.test(strip(out))) {
+    await new Promise(r => setTimeout(r, 50));
+  }
   try { child.kill('SIGKILL'); } catch {}
   await new Promise(r => setTimeout(r, 400));
   const O = strip(out);
@@ -168,7 +179,7 @@ console.log('\n[4] Task simpel TIDAK dirouting ke squad walau autoRoute on');
 
 console.log('\n[5] Command /help nampilin /mode dan /route');
 {
-  const out = strip(await runREPL(['/help', '/exit']));
+  const out = strip(await runREPL(['/help', '/exit'], { waitFor: [/\/mode/] }));
   check('/help nyebut /mode', /\/mode/.test(out));
   check('/help nyebut /route', /\/route/.test(out));
 }
