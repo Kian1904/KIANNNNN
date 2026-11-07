@@ -34,7 +34,7 @@ const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:task]', ...args); };
 /** Evidence mapping lives in src/core/evidence.js. */
 import { evidenceForContract } from './core/evidence.js';
 import { createTaskContext } from './core/task-context.js';
-import { discoverWorkspaceRoot, getWorkspaceRoot } from './core/workspace.js';
+import { discoverWorkspaceRoot, getWorkspaceRoot, resolveWorkspacePath } from './core/workspace.js';
 import { createTaskRuntimeConfig } from './core/task-config.js';
 import { checkAllowedAction } from './core/action-policy.js';
 import { formatReadResult, normalizeListTarget } from './core/fs-actions.js';
@@ -536,6 +536,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     // --- WRITE / APPEND / MKDIR ---
     if (step.action === 'write' || step.action === 'append' || step.action === 'mkdir') {
       actionIndicator(step.action, step.target);
+      const targetPath = resolveWorkspacePath(step.target);
       const rejected = rejectWriteReason(step.target, step.action);
       if (rejected) {
         print('blocked', `${step.action} ditolak: ${rejected}`);
@@ -544,17 +545,17 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       }
       if (step.action === 'write' || step.action === 'append') {
         print('diff', step.target);
-        const before = fs.existsSync(step.target) ? fs.readFileSync(step.target, 'utf8') : '';
+        const before = fs.existsSync(targetPath) ? fs.readFileSync(targetPath, 'utf8') : '';
         printBlock(showDiff(before, step.action === 'append' ? before + step.content : step.content));
       } else printBlock(`Direktori baru: ${step.target}`);
       sep();
       const opApproval = await askApproval(step.action);
       if (!opApproval.approved) return `${step.action} dibatalkan, task dihentikan.`;
       try {
-        const oldContent = fs.existsSync(step.target) ? fs.readFileSync(step.target, 'utf8') : '';
+        const oldContent = fs.existsSync(targetPath) ? fs.readFileSync(targetPath, 'utf8') : '';
         const mutation = buildMutationPlan({ action: step.action, target: step.target, before: oldContent, content: step.content });
         const content = mutation.finalContent;
-        if (step.action !== 'mkdir') saveSnapshot({ filepath: step.target, content: oldContent, isNewFile: !fs.existsSync(step.target) });
+        if (step.action !== 'mkdir') saveSnapshot({ filepath: step.target, content: oldContent, isNewFile: !fs.existsSync(targetPath) });
         const result = executeSafeMutation(step.action, step.target, step.content);
         if (!result.ok) return `${step.action} gagal: ${result.error}`;
         // M44: auto-lint gate — cek syntax file JS setelah tulis, rollback kalau error
@@ -567,8 +568,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
             continue;
           }
         }
-        const actual = step.action === 'mkdir' ? fs.existsSync(step.target) : fs.readFileSync(step.target, 'utf8');
-        const verification = step.action === 'mkdir' ? { ok: fs.statSync(step.target).isDirectory(), reason: 'direktori terbukti ada' } : verifyAction({ action: 'edit', target: step.target, expectedContent: content, actualContent: actual });
+        const actual = step.action === 'mkdir' ? fs.existsSync(targetPath) : fs.readFileSync(targetPath, 'utf8');
+        const verification = step.action === 'mkdir' ? { ok: fs.statSync(targetPath).isDirectory(), reason: 'direktori terbukti ada' } : verifyAction({ action: 'edit', target: step.target, expectedContent: content, actualContent: actual });
         print(verification.ok ? 'verify_ok' : 'error', verification.reason);
         pushHistory(buildMutationHistory(step.action, step.target, result, verification));
         continue;
