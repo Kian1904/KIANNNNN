@@ -16,6 +16,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { readEnv } from './env.js';
+import { getWorkspaceRoot } from './core/workspace.js';
 
 const execAsync = promisify(exec);
 
@@ -51,7 +52,7 @@ function clamp(text, limit, label) {
   };
 }
 
-export async function runCommand(command) {
+export async function runCommand(command, { cwd = getWorkspaceRoot() } = {}) {
   const tMs = timeoutMs();
   const tBuf = maxBuffer();
   const limit = sendLimit();
@@ -60,6 +61,7 @@ export async function runCommand(command) {
     const { stdout, stderr } = await execAsync(command, {
       timeout: tMs,
       maxBuffer: tBuf,
+      cwd,
     });
 
     const out = clamp(stdout.trim(), limit, 'stdout');
