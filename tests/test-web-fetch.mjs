@@ -8,40 +8,41 @@ const check = (label, cond, extra = '') => {
 };
 
 (async () => {
+  const publicDns = async () => ['93.184.216.34'];
   console.log('\n[1] web_fetch — HTML jadi teks yang bisa dibaca model');
   const html = '<html><head><title>Cuaca</title><style>.x{}</style></head><body>' +
     '<h1>Prakiraan Jakarta</h1><p>Malam ini hujan ringan, suhu 25°C.</p>' +
     '<script>alert(1)</script></body></html>';
   const ok = await fetchWebPage('https://bmkg.test/cuaca', {
-    fetchFn: async () => new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }),
+    resolveFn: publicDns, fetchFn: async () => new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }),
   });
   check('ok:true', ok.ok === true);
   check('URL dipertahankan', ok.url === 'https://bmkg.test/cuaca');
-  check('judul/isi masuk', ok.text.includes('Prakiraan Jakarta') && ok.text.includes('hujan ringan'));
-  check('script/style dibuang', !ok.text.includes('alert') && !ok.text.includes('.x'));
-  check('content type tercatat', ok.contentType.includes('text/html'));
+  check('judul/isi masuk', ok.ok && ok.text.includes('Prakiraan Jakarta') && ok.text.includes('hujan ringan'));
+  check('script/style dibuang', ok.ok && !ok.text.includes('alert') && !ok.text.includes('.x'));
+  check('content type tercatat', ok.ok && ok.contentType.includes('text/html')); 
 
   console.log('\n[2] web_fetch — fail-closed URL dan ukuran');
   const ftp = await fetchWebPage('ftp://example.com/file', { fetchFn: async () => { throw new Error('jangan dipanggil'); } });
   check('protocol selain http/https ditolak', ftp.ok === false && ftp.error === 'blocked_url');
   const tooBig = await fetchWebPage('https://example.test/big', {
     maxBytes: 20,
-    fetchFn: async () => new Response('ini lebih panjang dari batas', { status: 200, headers: { 'content-type': 'text/plain' } }),
+    resolveFn: publicDns, fetchFn: async () => new Response('ini lebih panjang dari batas', { status: 200, headers: { 'content-type': 'text/plain' } }),
   });
   check('body terlalu besar ditolak', tooBig.ok === false && tooBig.error === 'too_large');
 
   console.log('\n[3] web_fetch — HTTP error, timeout, dan non-text');
   const notFound = await fetchWebPage('https://example.test/404', {
-    fetchFn: async () => new Response('nope', { status: 404, statusText: 'Not Found' }),
+    resolveFn: publicDns, fetchFn: async () => new Response('nope', { status: 404, statusText: 'Not Found' }),
   });
   check('HTTP error tidak dianggap sukses', notFound.ok === false && notFound.status === 404);
   const binary = await fetchWebPage('https://example.test/a.png', {
-    fetchFn: async () => new Response('PNG', { status: 200, headers: { 'content-type': 'image/png' } }),
+    resolveFn: publicDns, fetchFn: async () => new Response('PNG', { status: 200, headers: { 'content-type': 'image/png' } }),
   });
   check('non-text ditolak', binary.ok === false && binary.error === 'non_text');
   const timeout = await fetchWebPage('https://example.test/slow', {
     timeoutMs: 10,
-    fetchFn: (_url, opts) => new Promise((_, reject) => {
+    resolveFn: publicDns, fetchFn: (_url, opts) => new Promise((_, reject) => {
       opts.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
     }),
   });
