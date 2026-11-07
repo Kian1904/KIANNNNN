@@ -169,6 +169,8 @@ console.log('\n[4] Task simpel TIDAK dirouting ke squad walau autoRoute on');
   while (Date.now() < deadline && !/Mode approval aktif/.test(strip(out))) {
     await new Promise(r => setTimeout(r, 50));
   }
+  // Give stdout one event-loop turn to flush the final formatted line.
+  await new Promise(r => setTimeout(r, 250));
   try { child.kill('SIGKILL'); } catch {}
   await new Promise(r => setTimeout(r, 400));
   const O = strip(out);
