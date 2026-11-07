@@ -8,7 +8,7 @@
 
 import {
   TASK_STATUS, readJournal, replayJournal, isTerminalStatus,
-} from './task-journal.js';
+} from '../task-journal.js';
 
 /**
  * Boleh di-resume? Hanya task non-terminal yang punya jejak journal.
