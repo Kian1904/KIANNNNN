@@ -34,7 +34,7 @@ const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:task]', ...args); };
 /** Evidence mapping lives in src/core/evidence.js. */
 import { evidenceForContract } from './core/evidence.js';
 import { createTaskContext } from './core/task-context.js';
-import { getWorkspaceRoot } from './core/workspace.js';
+import { discoverWorkspaceRoot, getWorkspaceRoot } from './core/workspace.js';
 import { createTaskRuntimeConfig } from './core/task-config.js';
 import { checkAllowedAction } from './core/action-policy.js';
 import { formatReadResult, normalizeListTarget } from './core/fs-actions.js';
@@ -62,6 +62,7 @@ export { evidenceForContract };
  * @param {Object|null} agentConfig - config agent ber-role (src/agents.js); null = generic
  */
 export async function runTask(instruction, agentMd, availableTools, threadId, stats, trackProvider, trackAction, isDangerous, askApproval, agentConfig = null) {
+  discoverWorkspaceRoot(process.cwd(), { preferStart: true });
   if (stats) stats.tasks++;
   // Core task context owns history, contract, and journal persistence.
   const taskContext = createTaskContext({

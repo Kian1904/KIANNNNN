@@ -3,19 +3,23 @@ import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { isSafePath } from './utils/fs.js';
+import { resolveWorkspacePath } from './core/workspace.js';
+
+const resolvedPath = target => resolveWorkspacePath(target);
 
 export function inspectTarget(target) {
   if (!isSafePath(target)) return { ok: false, error: 'blocked' };
-  if (!fs.existsSync(target)) return { ok: false, error: 'not_found' };
+  const resolved = resolvedPath(target);
+  if (!fs.existsSync(resolved)) return { ok: false, error: 'not_found' };
   let st;
-  try { st = fs.statSync(target); } catch (err) { return { ok: false, error: err.message }; }
+  try { st = fs.statSync(resolved); } catch (err) { return { ok: false, error: err.message }; }
   if (st.isDirectory()) {
     let entries;
-    try { entries = fs.readdirSync(target); } catch (err) { return { ok: false, error: err.message }; }
+    try { entries = fs.readdirSync(resolved); } catch (err) { return { ok: false, error: err.message }; }
     return { ok: true, kind: entries.length === 0 ? 'dir_empty' : 'dir_nonempty', entries: entries.length, sample: entries.slice(0, 5), size: 0 };
   }
   let content;
-  try { content = fs.readFileSync(target, 'utf8'); } catch { return { ok: true, kind: 'file_binary', size: st.size, content: null }; }
+  try { content = fs.readFileSync(resolved, 'utf8'); } catch { return { ok: true, kind: 'file_binary', size: st.size, content: null }; }
   const lines = content.split('\n');
   return { ok: true, kind: 'file', size: st.size, lines: lines.length, preview: lines.slice(0, 8).join('\n'), more: Math.max(0, lines.length - 8), content };
 }
@@ -44,21 +48,23 @@ export function rejectReason(target, info) {
 
 export function rejectWriteReason(target, op) {
   if (!['write', 'append', 'mkdir'].includes(op)) return `operasi tidak dikenal: ${op}`;
+  const resolved = resolvedPath(target);
   if (!isSafePath(target)) return 'path diblokir karena keamanan';
-  if (op === 'write' && fs.existsSync(target)) return 'target sudah ada — write tidak boleh overwrite';
-  if (op === 'mkdir' && fs.existsSync(target)) return 'direktori sudah ada';
+  if (op === 'write' && fs.existsSync(resolved)) return 'target sudah ada — write tidak boleh overwrite';
+  if (op === 'mkdir' && fs.existsSync(resolved)) return 'direktori sudah ada';
   return null;
 }
 
 export function applySafeFileOp(op, target, content = '') {
   const rejected = rejectWriteReason(target, op);
   if (rejected) return { ok: false, error: rejected };
+  const resolved = resolvedPath(target);
   try {
-    const parent = path.dirname(target);
+    const parent = path.dirname(resolved);
     if (parent && !fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true });
-    if (op === 'write') fs.writeFileSync(target, String(content), 'utf8');
-    else if (op === 'append') fs.appendFileSync(target, String(content), 'utf8');
-    else if (op === 'mkdir') fs.mkdirSync(target, { recursive: false });
+    if (op === 'write') fs.writeFileSync(resolved, String(content), 'utf8');
+    else if (op === 'append') fs.appendFileSync(resolved, String(content), 'utf8');
+    else if (op === 'mkdir') fs.mkdirSync(resolved, { recursive: false });
     else return { ok: false, error: `operasi tidak dikenal: ${op}` };
     return { ok: true };
   } catch (err) { return { ok: false, error: err.message }; }
@@ -66,28 +72,30 @@ export function applySafeFileOp(op, target, content = '') {
 
 export function applyFileOp(op, target, dest) {
   if (!isSafePath(target)) return { ok: false, error: 'path target diblokir karena keumanan' };
-  if (!fs.existsSync(target)) return { ok: false, error: 'target sudah tidak ada' };
+  const resolved = resolvedPath(target);
+  if (!fs.existsSync(resolved)) return { ok: false, error: 'target sudah tidak ada' };
   if (op === 'delete') {
     try {
-      const st = fs.statSync(target);
+      const st = fs.statSync(resolved);
       if (st.isDirectory()) {
-        if (fs.readdirSync(target).length > 0) return { ok: false, error: 'direktori tidak kosong — ditolak' };
-        fs.rmdirSync(target);
-      } else fs.unlinkSync(target);
+        if (fs.readdirSync(resolved).length > 0) return { ok: false, error: 'direktori tidak kosong — ditolak' };
+        fs.rmdirSync(resolved);
+      } else fs.unlinkSync(resolved);
       return { ok: true };
     } catch (err) { return { ok: false, error: err.message }; }
   }
   if (op === 'rename' || op === 'move') {
     if (!dest) return { ok: false, error: 'destinasi kosong' };
     if (!isSafePath(dest)) return { ok: false, error: 'path tujuan diblokir karena keumanan' };
-    if (fs.existsSync(dest)) return { ok: false, error: `tujuan sudah ada: ${dest}` };
+    const resolvedDest = resolvedPath(dest);
+    if (fs.existsSync(resolvedDest)) return { ok: false, error: `tujuan sudah ada: ${dest}` };
     try {
-      const parent = path.dirname(dest);
+      const parent = path.dirname(resolvedDest);
       if (parent && !fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true });
-      try { fs.renameSync(target, dest); } catch (err) {
+      try { fs.renameSync(resolved, resolvedDest); } catch (err) {
         if (err.code !== 'EXDEV') throw err;
-        fs.cpSync(target, dest, { recursive: true });
-        fs.rmSync(target, { recursive: true, force: true });
+        fs.cpSync(resolved, resolvedDest, { recursive: true });
+        fs.rmSync(resolved, { recursive: true, force: true });
       }
       return { ok: true };
     } catch (err) { return { ok: false, error: err.message }; }
@@ -98,16 +106,17 @@ export function applyFileOp(op, target, dest) {
 // M44: auto-lint gate — setelah write/edit/append file JS. cek syntax.
 // Kalau error, rollback ke konten sebelumnya dan kembalikkan pesan error.
 export function lintAfterWrite(target, previousContent) {
+  const resolved = resolvedPath(target);
   const ext = target.split('.').pop().toLowerCase();
   if (!['js', 'mjs', 'cjs'].includes(ext)) return { ok: true };
   try {
-    execFileSync(process.execPath, ['--check', target], { timeout: 10000, stdio: 'pipe' });
+    execFileSync(process.execPath, ['--check', resolved], { timeout: 10000, stdio: 'pipe' });
     return { ok: true };
   } catch (err) {
     const raw = err.stderr ? String(err.stderr) : 'syntax error';
     const firstLine = raw.split(String.fromCharCode(10))[0];
     if (previousContent !== null && previousContent !== undefined) {
-      try { fs.writeFileSync(target, previousContent, 'utf8'); } catch (e) { /* ignore */ }
+      try { fs.writeFileSync(resolved, previousContent, 'utf8'); } catch (e) { /* ignore */ }
       return { ok: false, error: 'LINT_FAIL: ' + firstLine + ' — file di-rollback ke versi sebelumnya.', rolledBack: true };
     }
     return { ok: false, error: 'LINT_FAIL: ' + firstLine, rolledBack: false };
