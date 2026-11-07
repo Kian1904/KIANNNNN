@@ -1,0 +1,10 @@
+import { createSessionStats, createApprovalController } from '../src/core/repl-session.js';
+let pass = 0; let fail = 0;
+const check = (label, ok) => ok ? (pass++, console.log(`PASS ${label}`)) : (fail++, console.log(`FAIL ${label}`));
+const session = createSessionStats(); session.trackProvider('mock'); session.trackAction('read'); session.trackAction('read');
+check('stats provider tracked', session.stats.llmCalls === 1 && session.stats.byProvider.mock === 1);
+check('stats action tracked', session.stats.byAction.read === 2);
+const prints = []; const approvals = createApprovalController({ ask: async () => '1', print: (...x) => prints.push(x), approvalMode: () => 'safe', sessionAllowed: new Set(), prompt: '> ' });
+check('approval controller allows once', (await approvals('edit')).approved === true);
+check('approval controller keeps UI feedback', prints.length === 0);
+console.log(`=== HASIL REPL-SESSION: ${pass} pass, ${fail} fail ===`); if (fail) process.exit(1);

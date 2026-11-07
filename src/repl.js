@@ -19,7 +19,9 @@ import { handleUsage } from './commands/usage.js';
 import { handleConnect } from './commands/connect.js';
 import { handleAuth } from './commands/auth.js'; // BARU
 import { isDangerous } from './approval.js';
-import { MODES, DESTRUCTIVE_ACTIONS, normalizeMode, decide, MODE_DESCRIPTIONS } from './modes.js';
+import { MODES, normalizeMode, MODE_DESCRIPTIONS } from './modes.js';
+import { createApprovalController, createSessionStats } from './core/repl-session.js';
+import { handleRollback } from './core/rollback.js';
 import { routeTask, describeRouting } from './optional/routing.js';
 import { reviewPlan, MAX_REPLANS } from './plan-review.js';
 
@@ -51,71 +53,16 @@ async function startREPL() {
     return new Promise(resolve => rl.question(question, resolve));
   };
 
-  const askApproval = async (label, { forceAsk = false } = {}) => {
-    // ── MODE GATE ────────────────────────────────────────────────────────
-    // Destruktif = forceAsk dari command shell (rm/sudo/dd/...), ATAU label-nya
-    // sendiri aksi destruktif (delete/rename/move/remove).
-    const destructive = forceAsk || DESTRUCTIVE_ACTIONS.has(String(label).toLowerCase());
-    const verdict = decide(approvalMode, { action: label, isDestructive: destructive });
-
-    if (verdict.auto) {
-      print('auto', `${label} auto-approved (mode: ${approvalMode.toUpperCase()}).`);
-      return { approved: true, condition: null };
-    }
-
-    // ── Mode SAFE / WELL-WELL + destruktif: tanya manual ────────────────
-    if (!forceAsk && sessionAllowed.has(label)) {
-      print('auto', `${label} diizinkan untuk sesi ini.`);
-      return { approved: true, condition: null };
-    }
-
-    if (forceAsk) print('warn', 'Command destruktif — "allow for session" tidak tersedia.');
-    if (approvalMode === MODES.WELLWELL) {
-      print('warn', 'Aksi destruktif — mode WELL-WELL tetap minta approval.');
-    }
-
-    console.log('  1) Allow once');
-    if (!forceAsk) console.log('  2) Allow for this session');
-    console.log('  3) Do not approve');
-    console.log('  4) Approve with condition');
-
-    const choice = (await ask(PROMPT)).trim();
-
-    if (choice === '1') return { approved: true, condition: null };
-
-    if (choice === '2') {
-      if (forceAsk) {
-        print('warn', 'Tidak tersedia untuk command destruktif.');
-        return { approved: false, condition: null };
-      }
-      sessionAllowed.add(label);
-      print('session_ok', `${label} akan auto-approved sampai /exit.`);
-      return { approved: true, condition: null };
-    }
-
-    if (choice === '3') return { approved: false, condition: null };
-
-    if (choice === '4') {
-      const condition = await ask('  Ketik kondisi: ');
-      console.log(`\n  Kondisi yang akan diteruskan: "${condition.trim()}"`);
-      const confirm = await ask('  Lanjut? (y/n): ');
-      if (confirm.trim().toLowerCase() !== 'y') return { approved: false, condition: null };
-      return { approved: true, condition: condition.trim() };
-    }
-
-    print('warn', 'Input tidak valid — default: tidak diapprove.');
-    return { approved: false, condition: null };
-  };
+  const askApproval = createApprovalController({
+    ask,
+    print,
+    approvalMode: () => approvalMode,
+    sessionAllowed,
+    prompt: PROMPT,
+  });
 
   // Session stats
-  const stats = { tasks: 0, llmCalls: 0, byProvider: {}, byAction: {} };
-  const trackProvider = (name) => {
-    stats.llmCalls++;
-    stats.byProvider[name] = (stats.byProvider[name] || 0) + 1;
-  };
-  const trackAction = (action) => {
-    stats.byAction[action] = (stats.byAction[action] || 0) + 1;
-  };
+  const { stats, trackProvider, trackAction } = createSessionStats();
 
   let availableTools = [];
   try {
@@ -183,6 +130,13 @@ async function startREPL() {
 
     // /rollback [filepath]
     if (instruction.toLowerCase().startsWith('/rollback')) {
+      const filepath = instruction.split(' ')[1];
+      await handleRollback(filepath, { ask, print, printBlock, sep });
+      continue;
+    }
+
+    /* legacy rollback handler removed; behavior lives in core/rollback.js.
+    /* if (instruction.toLowerCase().startsWith('/rollback')) {
       const filepath = instruction.split(' ')[1];
       if (!filepath) {
         const { listSnapshots } = await import('./db.js');
@@ -266,6 +220,7 @@ async function startREPL() {
       }
       continue;
     }
+    */
 
     // /connect [add <url> | toggle <name>]
     if (instruction.toLowerCase().startsWith('/connect')) {

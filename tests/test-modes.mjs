@@ -78,8 +78,8 @@ console.log('\n[7] Integrasi askApproval REPL (mode dibaca dari env)');
   // mode gate beneran kepasang di askApproval (bukan cuma di modul modes.js).
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../src/repl.js', import.meta.url), 'utf8');
-  check('repl.js import decide()', /import\s*\{[^}]*decide[^}]*\}\s*from\s*'\.\/modes\.js'/.test(src));
-  check('repl.js panggil decide di askApproval', /const verdict = decide\(approvalMode/.test(src));
+  check('repl.js import approval controller', /createApprovalController/.test(src));
+  check('approval logic extracted dari repl.js', !/const verdict = decide\(approvalMode/.test(src));
   check('repl.js punya state approvalMode', /let approvalMode = normalizeMode/.test(src));
   check('repl.js punya command /mode', /startsWith\('\/mode'\)/.test(src));
   check('repl.js /mode yolo kasih warning', /YOLO AKTIF/.test(src));
@@ -97,8 +97,8 @@ console.log('\n[8] Konsistensi REPL vs Telegram (aturan satu sumber)');
   const fs = await import('node:fs');
   const repl = fs.readFileSync(new URL('../src/repl.js', import.meta.url), 'utf8');
   const tg = fs.readFileSync(new URL('../src/telegram-bot.js', import.meta.url), 'utf8');
-  // Dua-duanya harus pakai DESTRUCTIVE_ACTIONS dari modes.js, bukan bikin set sendiri.
-  check('repl.js pakai DESTRUCTIVE_ACTIONS dari modes.js', /DESTRUCTIVE_ACTIONS\.has/.test(repl));
+  // Approval policy kini dipusatkan di controller bersama, bukan diduplikasi di REPL.
+  check('repl.js pakai shared approval controller', /createApprovalController/.test(repl));
   check('telegram-bot.js pakai DESTRUCTIVE_ACTIONS dari modes.js', /DESTRUCTIVE_ACTIONS\.has/.test(tg));
   check('dua-duanya nge-import dari modes.js', /from '\.\/modes\.js'/.test(repl) && /from '\.\/modes\.js'/.test(tg));
 }
