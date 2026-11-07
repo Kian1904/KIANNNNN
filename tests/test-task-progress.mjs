@@ -2,7 +2,7 @@
 import {
   createProgressTracker, updateProgress, getProgressReport,
   shouldReport, registerSignalHandler, getRemainingEstimate,
-} from '../src/task-progress.js';
+} from '../src/experimental/task-progress.js';
 
 let pass = 0, fail = 0;
 const check = (l, c, x = '') => c ? (pass++, console.log(`  PASS ${l}`)) : (fail++, console.log(`  FAIL ${l}${x ? ' — ' + x : ''}`));

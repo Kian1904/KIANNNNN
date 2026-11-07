@@ -4,7 +4,7 @@ import {
 } from '../src/command-registry.js';
 import {
   routeByCapability, MODEL_CAPABILITIES, pickBestModel,
-} from '../src/model-router.js';
+} from '../src/experimental/model-router.js';
 
 let pass = 0, fail = 0;
 const check = (l, c, x = '') => c ? (pass++, console.log(`  PASS ${l}`)) : (fail++, console.log(`  FAIL ${l}${x ? ' — ' + x : ''}`));

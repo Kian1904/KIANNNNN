@@ -2,7 +2,7 @@
 import {
   publishArtifact, discoverArtifacts, consumeArtifact,
   getArtifactChain, queryByTag, queryByType, getConsumerCount,
-} from '../src/shared-artifacts.js';
+} from '../src/experimental/shared-artifacts.js';
 
 let pass = 0, fail = 0;
 const check = (l, c, x = '') => c ? (pass++, console.log(`  PASS ${l}`)) : (fail++, console.log(`  FAIL ${l}${x ? ' — ' + x : ''}`));

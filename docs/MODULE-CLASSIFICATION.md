@@ -22,19 +22,19 @@ Evidence snapshot: runtime imports were inspected with `search_files`; focused r
 
 Optional adapters are reachable by user-facing flows but are not part of the minimal single-agent contract.
 
-## TEST-ONLY / EXPERIMENTAL CANDIDATES
+## EXPERIMENTAL / TEST-ONLY
 
-These currently have tests or historical milestone references but no direct runtime import found in the inspected `src/` import graph:
+The following modules are now physically isolated under `src/experimental/`. They retain their APIs and tests but are not imported by the minimal core runtime:
 
-- `src/artifact-registry.js`
-- `src/shared-artifacts.js`
-- `src/worker-lifecycle.js`
-- `src/model-router.js`
-- `src/tracer.js`
-- `src/mcp-health.js`
-- `src/install-check.js`
-- `src/task-progress.js`
-- `src/task-resume.js`
-- `src/budget-engine.js`
+- `artifact-registry.js`
+- `shared-artifacts.js`
+- `worker-lifecycle.js`
+- `model-router.js`
+- `tracer.js`
+- `mcp-health.js`
+- `install-check.js`
+- `task-progress.js`
+- `task-resume.js`
+- `budget-engine.js`
 
-They are intentionally not deleted in this pass because tests, commands, or external consumers may still import them. Deletion requires an explicit compatibility decision.
+Isolation is not deletion. Re-enable or delete them only after an explicit compatibility decision.

@@ -1,13 +1,13 @@
 // M65+M66+M67 RED: observability + MCP health + install hardening.
 import {
   createTrace, logEvent, getTraceReport, exportTrace,
-} from '../src/tracer.js';
+} from '../src/experimental/tracer.js';
 import {
   healthCheck, validateServerConfig, formatHealthReport,
-} from '../src/mcp-health.js';
+} from '../src/experimental/mcp-health.js';
 import {
   validateInstall, checkDependencies, getInstallReport,
-} from '../src/install-check.js';
+} from '../src/experimental/install-check.js';
 
 let pass = 0, fail = 0;
 const check = (l, c, x = '') => c ? (pass++, console.log(`  PASS ${l}`)) : (fail++, console.log(`  FAIL ${l}${x ? ' — ' + x : ''}`));

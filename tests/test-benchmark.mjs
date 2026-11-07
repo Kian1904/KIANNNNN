@@ -200,7 +200,7 @@ try {
   // ── [7] Artifact provenance ─────────────────────────────────────────────
   console.log('\n[7] BENCHMARK: artifact provenance');
   {
-    const { createArtifact, chainArtifacts, validateProvenance, ARTIFACT_TYPE } = await import('../src/artifact-registry.js');
+    const { createArtifact, chainArtifacts, validateProvenance, ARTIFACT_TYPE } = await import('../src/experimental/artifact-registry.js');
     const a1 = createArtifact({ type: ARTIFACT_TYPE.EVIDENCE, source: 'web_fetch', data: { url: 'x' } });
     const a2 = createArtifact({ type: ARTIFACT_TYPE.TEST_RESULT, source: 'test', data: { passed: true } });
     chainArtifacts(a2, a1);
@@ -212,7 +212,7 @@ try {
   // ── [8] Worker lifecycle ────────────────────────────────────────────────
   console.log('\n[8] BENCHMARK: worker lifecycle');
   {
-    const { createWorker, leaseTask, releaseTask, shouldRetry, WORKER_STATUS } = await import('../src/worker-lifecycle.js');
+    const { createWorker, leaseTask, releaseTask, shouldRetry, WORKER_STATUS } = await import('../src/experimental/worker-lifecycle.js');
     const w = createWorker({ id: 'bw1', role: 'coder', taskId: 'bt1', maxAttempts: 2 });
     leaseTask(w);
     releaseTask(w, 'error: timeout');

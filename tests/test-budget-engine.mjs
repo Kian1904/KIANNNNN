@@ -2,7 +2,7 @@
 import {
   createBudget, trackUsage, isOverBudget, getBudgetReport,
   BUDGET_KIND, estimateCost,
-} from '../src/budget-engine.js';
+} from '../src/experimental/budget-engine.js';
 
 let pass = 0, fail = 0;
 const check = (l, c, x = '') => c ? (pass++, console.log(`  PASS ${l}`)) : (fail++, console.log(`  FAIL ${l}${x ? ' — ' + x : ''}`));

@@ -21,7 +21,7 @@ let pass = 0, fail = 0;
 const check = (l, c, x = '') => c ? (pass++, console.log(`  ✓ ${l}`)) : (fail++, console.log(`  ✗ ${l}${x ? ' — ' + x : ''}`));
 
 const { readJournal, replayJournal, isTerminalStatus, listTaskFiles } = await import('../src/task-journal.js');
-const { planResume, isResumable, buildResumeInstruction } = await import('../src/task-resume.js');
+const { planResume, isResumable, buildResumeInstruction } = await import('../src/experimental/task-resume.js');
 
 function makeHangServer() {
   // Server ini sengaja: request pertama dijawab normal, request kedua dan
