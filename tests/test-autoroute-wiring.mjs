@@ -22,7 +22,7 @@ function check(label, cond, extra = '') {
 
 console.log('\n[1] Import & state');
 check('repl.js import routeTask dari routing.js',
-  /import\s*\{[^}]*routeTask[^}]*\}\s*from\s*['"]\.\/routing\.js['"]/.test(src));
+  /import\s*\{[^}]*routeTask[^}]*\}\s*from\s*['"]\.\/optional\/routing\.js['"]/.test(src));
 check('ada state autoRoute', /let\s+autoRoute\s*=/.test(src));
 check('autoRoute default OFF (harus readEnv("AUTOROUTE") === "1" buat nyala)',
   /readEnv\(['"]AUTOROUTE['"]\)\s*===\s*['"]1['"]/.test(src));

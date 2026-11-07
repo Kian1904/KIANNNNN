@@ -3,7 +3,7 @@ import {
   WORKER_STATUS, createWorker, heartbeat, isAlive, isTimedOut,
   leaseTask, releaseTask, cancelWorker, shouldRetry, detectConflict,
   listWorkers, getWorker,
-} from '../src/worker-lifecycle.js';
+} from '../src/experimental/worker-lifecycle.js';
 
 let pass = 0, fail = 0;
 const check = (l, c, x = '') => c ? (pass++, console.log(`  PASS ${l}`)) : (fail++, console.log(`  FAIL ${l}${x ? ' — ' + x : ''}`));

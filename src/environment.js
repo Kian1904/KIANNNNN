@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { getWorkspaceRoot } from './core/workspace.js';
 const execFileAsync = promisify(execFile);
 
 export function defineEnvironment(input = {}) {
@@ -16,7 +17,7 @@ export function defineEnvironment(input = {}) {
   };
 }
 
-export async function preflightEnvironment(contract, { cwd = process.cwd(), env = process.env } = {}) {
+export async function preflightEnvironment(contract, { cwd = getWorkspaceRoot(), env = process.env } = {}) {
   const c = defineEnvironment(contract);
   const missing = [];
   const optionalMissing = [];
@@ -30,6 +31,8 @@ export async function preflightEnvironment(contract, { cwd = process.cwd(), env 
   const badPaths = [];
   for (const p of c.paths.read || []) if (p !== '.' && !fs.existsSync(path.resolve(cwd, p))) badPaths.push({ type: 'path', path: p, access: 'read' });
   for (const p of c.paths.write || []) if (p !== '.' && !fs.existsSync(path.resolve(cwd, p))) badPaths.push({ type: 'path', path: p, access: 'write' });
+  // Keep command checks and path checks inside the same workspace context.
+  // `cwd` is explicit so callers can still intentionally override it.
   missing.push(...badPaths);
   return { status: missing.length ? 'blocked' : (optionalMissing.length ? 'degraded' : 'ready'), missing, optionalMissing, capabilities: c.capabilities, network: c.network };
 }

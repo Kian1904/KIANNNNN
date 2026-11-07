@@ -3,99 +3,50 @@
 import fs from 'fs';
 import path from 'path';
 import { askWithFallback, fallbackState } from './providers.js';
-import { planStep, planStepWithRetry, buildHistoryText } from './plan.js';
+import { planStepWithRetry, buildHistoryText } from './plan.js';
 import { showDiff } from './diff.js';
-import { runCommand } from './bash.js';
 import { logStep, saveDecision, getRecentDecisions, saveSnapshot } from './db.js';
-import { callTool } from '../mcp/client.js';
-import { searchWeb } from './search.js';
-import { fetchWebPage, focusWebText } from './web-fetch.js'
-import { verifyAction, verifyCompletion } from './verifier.js';
+import { executeBash } from './core/execution/bash.js';
+import { executeSafeMutation, executeDestructive, lintWrittenFile } from './core/execution/files.js';
+import { executeSearch, executeFetch } from './core/execution/web.js';
+import { executeMcp } from './core/execution/mcp.js';
+import { focusWebText } from './web-fetch.js';
+import { verifyAction } from './verifier.js';
 import { print, printBlock, sep, blank, actionIndicator } from './ui.js';
 import { readFileSafe, readFileRange, listDirSafe, isSafePath } from './utils/fs.js';
-import { inspectTarget, describeTarget, rejectReason, rejectWriteReason, applyFileOp, applySafeFileOp, lintAfterWrite } from './file-ops.js';
-import { composeAgentPrompt, filterToolsForAgent } from './agents.js';
+import { inspectTarget, describeTarget, rejectReason, rejectWriteReason } from './file-ops.js';
 import { preflightEnvironment } from './environment.js';
-import { createTaskBudget } from './task-budget.js';
-import { delegateTask } from './delegate-cli.js';
-import { createTaskState, allCompleted } from './task-state.js';
-import { buildTaskContract, contractBlocksCompletion, renderContract } from './task-contract.js';
-import { TASK_STATUS, createJournal, appendEntry, readJournal, replayJournal, taskPath, defaultJournalDir } from './task-journal.js';
-import { decideRecovery, buildRecoveryHint } from './recovery.js';
+import { executeDelegate } from './core/execution/delegate.js';
+import { allCompleted } from './task-state.js';
+import { contractBlocksCompletion } from './task-contract.js';
+import { TASK_STATUS } from './task-journal.js';
+import { decideBashRecovery, recoveryHint } from './core/execution/recovery.js';
 import { detectTestRunner, buildTestCommand, parseTestOutput } from './test-orchestrator.js';
-import { runReview, REVIEW_VERDICT } from './review-engine.js';
-import { wrapUntrusted, scanForInjection } from './prompt-shield.js';
+import { runReview } from './review-engine.js';
+import { wrapUntrusted } from './prompt-shield.js';
 import { readEnv } from './env.js';
-import { packetFromHistory, buildEvidenceFallback } from './research-engine.js';
-import { compactResearchContext } from './research-context.js';
-
-// M12 — Extended MAX_LOOPS
-const MAX_LOOPS = parseInt(process.env.MAX_LOOPS) || 25;
+import { packetFromHistory, buildEvidenceFallback, compactResearchContext } from './optional/research.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:task]', ...args); };
 
-/**
- * M47: petakan history action aktual ke acceptance criteria kontrak.
- *
- * PRINSIP: hanya tindakan yang SUDAH terverifikasi (verified === true) yang
- * dihitung sebagai bukti. Klaim model, ringkasan, dan aksi yang gagal TIDAK
- * pernah menghasilkan bukti. Fungsi ini sengaja konservatif: lebih baik
- * menolak done daripada meloloskan klaim palsu.
- *
- * @param {Array} history - history action dari loop runTask
- * @param {object} contract - hasil buildTaskContract()
- * @returns {Array<{id:string,status:string,evidence:string}>}
- */
-export function evidenceForContract(history = [], contract = null) {
-  const items = Array.isArray(history) ? history : [];
-  const verified = items.filter(h => h && h.verified === true);
-  const failed = items.filter(h => h && h.verified === false);
-
-  const hasEditVerified = verified.some(h => ['edit', 'write', 'append', 'mkdir'].includes(h.action));
-  const hasBashOk = verified.some(h => h.action === 'bash');
-  const hasWebEvidence = verified.some(h => ['web_search', 'web_fetch'].includes(h.action));
-  const hasReadBack = verified.some(h => ['read', 'list_dir'].includes(h.action));
-  const hasAnyFailure = failed.length > 0;
-
-  const results = [];
-  const acceptance = Array.isArray(contract?.acceptance) ? contract.acceptance : [];
-
-  for (const criterion of acceptance) {
-    let evidence = '';
-
-    if (criterion.source === 'constraint') {
-      // Constraint dibuktikan lewat dua hal: output nyata yang menunjukkan
-      // kepatuhan, DAN tidak ada pelanggaran tercatat di history.
-      const violation = failed.find(h => h.error && /constraint|dilarang|ditolak|blocked/i.test(String(h.error)));
-      if (hasAnyFailure && violation) continue;
-      if (hasEditVerified || hasBashOk) {
-        evidence = `aksi terverifikasi tercatat (${verified.length}) tanpa pelanggaran constraint`;
-      }
-    } else if (criterion.source === 'verification') {
-      if (/test/i.test(criterion.text) && hasBashOk) evidence = 'perintah test/bash sukses dengan exit code 0';
-      if (/file|berkas/i.test(criterion.text) && hasEditVerified) evidence = 'file berubah dan isinya dibaca ulang';
-      if (/instalasi/i.test(criterion.text) && hasBashOk) evidence = 'command instalasi sukses';
-    } else if (criterion.source === 'measurement') {
-      if (hasBashOk && hasReadBack) evidence = 'angka dihitung dari output command dan pembacaan file aktual';
-      else if (hasBashOk) evidence = 'angka dihitung dari output command aktual';
-    } else if (criterion.source === 'evidence') {
-      if (hasWebEvidence) evidence = 'sumber web aktual terbaca dan terverifikasi';
-    } else if (criterion.source === 'diagnosis') {
-      if (hasBashOk) evidence = 'output command aktual dipakai sebagai bukti diagnosis';
-    } else {
-      // baseline: butuh minimal satu aksi nyata terverifikasi.
-      if (hasEditVerified || hasBashOk || hasWebEvidence || hasReadBack) {
-        evidence = `aksi nyata terverifikasi (${verified.length} aksi lolos pemeriksaan)`;
-      }
-    }
-
-    if (evidence) results.push({ id: criterion.id, status: 'completed', evidence });
-    else results.push({ id: criterion.id, status: 'pending' });
-  }
-
-  return results;
-}
+/** Evidence mapping lives in src/core/evidence.js. */
+import { evidenceForContract } from './core/evidence.js';
+import { createTaskContext } from './core/task-context.js';
+import { discoverWorkspaceRoot, getWorkspaceRoot, resolveWorkspacePath } from './core/workspace.js';
+import { createTaskRuntimeConfig } from './core/task-config.js';
+import { checkAllowedAction } from './core/action-policy.js';
+import { executeRead, executeListDir } from './core/execution/read.js';
+import { executeRemember } from './core/execution/memory.js';
+import { buildBashHistory, formatBashOutput } from './core/bash-actions.js';
+import { buildMutationPlan, buildMutationHistory } from './core/file-mutation.js';
+import { buildEditHistory, buildDestructiveHistory, buildMcpHistory, buildChatHistory, buildRememberHistory, buildReadHistory, buildListHistory, buildDelegateHistory } from './core/action-results.js';
+import { buildEditPlan, buildDestructivePlan, destructiveVerb, formatDestructivePreview } from './core/file-execution.js';
+import { buildDelegateRequest, buildMcpRequest, buildSearchRecord, buildFetchRecord, normalizeDelegateError } from './core/external-actions.js';
+import { collectUrls, chooseOfficialUrl, buildForcedResearchPrompt } from './core/web-planning.js';
+import { historyError, historyCondition, historyNote } from './core/history-actions.js';
+import { evaluateCompletion } from './core/completion-gate.js';
+export { evidenceForContract };
 
 /**
  * Jalankan agentic otonom loop
@@ -111,59 +62,20 @@ export function evidenceForContract(history = [], contract = null) {
  * @param {Object|null} agentConfig - config agent ber-role (src/agents.js); null = generic
  */
 export async function runTask(instruction, agentMd, availableTools, threadId, stats, trackProvider, trackAction, isDangerous, askApproval, agentConfig = null) {
+  discoverWorkspaceRoot(process.cwd(), { preferStart: true });
   if (stats) stats.tasks++;
-  const history = [];
-  // M48: setiap aksi yang masuk history juga masuk journal. Dibungkus sekali di
-  // sini supaya SEMUA jalur aksi (read/bash/edit/web/delegate/...) tercatat
-  // tanpa harus menyisipkan kode journal di ~20 call site.
-  const pushHistory = (item) => {
-    history.push(item);
-    if (item && typeof item === 'object') {
-      try {
-        journalLog({
-          type: 'action',
-          action: item.action,
-          target: item.target,
-          command: item.command,
-          verified: item.verified === true,
-          error: item.error,
-          approved: item.approved,
-        });
-      } catch { /* journal tidak boleh mematikan task */ }
-    }
-    return item;
-  };
+  // Core task context owns history, contract, and journal persistence.
+  const taskContext = createTaskContext({
+    instruction,
+    agentConfig,
+    threadId,
+    journalEnabled: readEnv('JOURNAL') !== '0',
+    workspaceRoot: getWorkspaceRoot(),
+  });
+  const { history, contract, journal, journalLog, pushHistory } = taskContext;
   let taskState = null;
-  // M47: kontrak task dibangun deterministik dari instruksi user — bukan dari
-  // jawaban model. Ini yang jadi gerbang "selesai": klaim done harus punya
-  // bukti untuk setiap acceptance criteria.
-  const contract = agentConfig && agentConfig.contractEnabled === false
-    ? { goal: '', constraints: [], acceptance: [], risk: 'low', instruction: '' }
-    : buildTaskContract(instruction);
   const contractResults = new Map();
   let lastTarget = null;
-
-  // M48: journal per task — append-only, crash-safe, di-redact.
-  // Kalau env K_JOURNAL=0, journal dimatikan (dipakai test lama yang tidak mau
-  // menyentuh disk). Default: aktif.
-  const journalEnabled = readEnv('JOURNAL') !== '0';
-  const journal = journalEnabled
-    ? (() => {
-        try {
-          return createJournal({
-            taskId: `t-${Date.now()}-${process.pid}`,
-            goal: instruction,
-            status: TASK_STATUS.RUNNING,
-            meta: { agent: agentConfig?.name || 'generic', cwd: process.cwd(), threadId: threadId ?? null, risk: contract.risk },
-          });
-        } catch { return null; }
-      })()
-    : null;
-  /** Catat ke journal tanpa pernah mengganggu jalannya task. */
-  const journalLog = (entry) => {
-    if (!journal) return;
-    try { appendEntry(journal, entry); } catch { /* journal tidak boleh mematikan task */ }
-  };
   const recentMemory = getRecentDecisions(5);
   let webSearchCount = 0;
 
@@ -179,29 +91,12 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       print('warn', `Environment agent "${agentConfig.name}" degraded: ${preflight.optionalMissing.map(x => `${x.type}:${x.name || x.path}`).join(', ')}`);
     }
   }
-  const maxLoops = (agentConfig && agentConfig.maxLoops) || MAX_LOOPS;
-  // M40: budget per task — search/fetch/step dibatasi deterministik, bukan
-  // nunggu provider error baru sadar.
-  const budget = createTaskBudget({
-    maxSteps: maxLoops,
-    maxSearches: parseInt(readEnv('MAX_SEARCH')) || 2,
-    maxFetches: parseInt(readEnv('MAX_FETCH')) || 3,
-    maxProviderCalls: parseInt(process.env.MAX_LOOPS) ? Math.min(MAX_LOOPS * 3, 30) : 15,
-  });
-  let systemPromptOverride = agentConfig ? composeAgentPrompt(agentConfig, agentMd) : null;
-
-  // M47: kontrak task disuntik ke system prompt supaya model tahu definisi
-  // selesai SEBELUM mulai, bukan dikoreksi belakangan setelah kerja sia-sia.
+  const runtimeConfig = createTaskRuntimeConfig({ agentConfig, agentMd, availableTools, contract });
+  const { maxLoops, budget, toolsForAgent, allowedActions } = runtimeConfig;
+  let systemPromptOverride = runtimeConfig.systemPromptOverride;
   if (contract.acceptance.length > 0) {
-    const contractText = renderContract(contract);
-    const contractBlock = `\n\n## KONTRAK TASK (WAJIB DIPENUHI)\n${contractText}\n\nACTION: done HANYA diterima kalau semua acceptance criteria di atas punya bukti aktual.\nKalau ada kriteria yang belum bisa dibuktikan, jangan pilih done — lakukan aksi yang membuktikannya.`;
-    systemPromptOverride = `${systemPromptOverride || ''}${contractBlock}`;
     print('info', `Kontrak task: ${contract.acceptance.length} kriteria (risk: ${contract.risk})`);
   }
-  const toolsForAgent = agentConfig
-    ? filterToolsForAgent(availableTools, agentConfig.mcpTools)
-    : availableTools;
-  const allowedActions = agentConfig ? agentConfig.actions : null;
   let blockedCount = 0;
   // M50: hitung kegagalan berturut-turut untuk kebijakan recovery.
   let consecutiveFailures = 0;
@@ -272,12 +167,13 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     dbg('Parsed step:', JSON.stringify({ action: step.action, target: step.target, tool: step.tool }).replace(/undefined/g, '-'));
 
     // --- WHITELIST AGENT: tolak aksi di luar kapasitas role ini ---
-    if (allowedActions && step.action !== 'done' && !allowedActions.includes(step.action)) {
+    const actionPolicy = checkAllowedAction(agentConfig, step.action);
+    if (!actionPolicy.allowed) {
       blockedCount++;
-      print('blocked', `Agent "${agentConfig.name}" tidak boleh ACTION: ${step.action}. Diizinkan: ${allowedActions.join(', ')}.`);
+      print('blocked', actionPolicy.reason);
       pushHistory({
         action: 'user_condition',
-        condition: `ACTION ${step.action} TIDAK DIIZINKAN untuk role ${agentConfig.name}. Pilih salah satu dari: ${allowedActions.join(', ')}, atau done.`
+        condition: actionPolicy.reason
       });
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `Blocked disallowed action ${step.action} for agent ${agentConfig.name}`, actionType: 'blocked', reasoning: step.reasoning, approved: false });
@@ -300,26 +196,21 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         pushHistory({ action: 'user_condition', condition: `[SISTEM: ACTION done DITOLAK. Checklist belum selesai: ${pending}. Selesaikan semua item dulu.]` });
         continue;
       }
-      const completion = verifyCompletion(history, step.summary);
-      if (!completion.ok) {
-        print('error', `Belum boleh selesai: ${completion.reason}`);
-        // Jangan percaya klaim done. Minta model satu langkah koreksi/verifikasi.
-        systemPromptOverride = `${systemPromptOverride || ''}\n\n[SISTEM VERIFIER: Klaim selesai DITOLAK: ${completion.reason}. Jangan ACTION: done dulu. Periksa ulang hasil aksi terakhir dan pilih aksi verifikasi/perbaikan yang konkret.]`;
-        continue;
-      }
       // M51: test orchestrator gate — kalau contract punya kriteria test dan
       // project punya test runner, jalankan test NYATA sebelum done diterima.
       // Hasilnya di-parse jadi structured result lalu masuk history sebagai bukti.
       const needsTest = contract.acceptance.some(a => /test/i.test(a.text));
+      let testResult = null;
       if (needsTest) {
-        const detected = detectTestRunner({ root: process.cwd() });
+        const detected = detectTestRunner({ root: getWorkspaceRoot() });
         if (detected) {
           const cmd = buildTestCommand(detected);
           print('info', `M51 test orchestrator: menjalankan ${cmd}`);
           try {
-            const result = await runCommand(cmd);
+            const result = await executeBash(cmd);
             const parsed = parseTestOutput(result.stdout || '', detected.runner);
             const testVerified = result.code === 0 && parsed.passed;
+            testResult = { required: true, passed: testVerified, summary: parsed.summary, failures: parsed.failures, runner: detected.runner };
             journalLog({
               type: 'action', action: 'test', command: cmd,
               verified: testVerified, error: testVerified ? undefined : `test gagal (${parsed.summary})`,
@@ -351,32 +242,23 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       const gateResults = evidenceForContract(history, contract);
       contractResults.clear();
       for (const res of gateResults) contractResults.set(res.id, res);
-      const contractGate = contractBlocksCompletion(contract, gateResults);
-      if (contractGate.blocked) {
-        const pendingText = contractGate.pending.slice(0, 4).join(' | ');
-        print('blocked', `Klaim selesai DITOLAK — ${contractGate.reason}.`);
-        contractGate.pending.slice(0, 4).forEach(t => printBlock(`• ${t}`, 2));
-        pushHistory({
-          action: 'user_condition',
-          condition: `[SISTEM: ACTION done DITOLAK oleh kontrak task. ${contractGate.reason}: ${pendingText}. Kamu WAJIB membuktikan kriteria ini dengan aksi nyata (bukan klaim) sebelum done.]`,
-        });
-        continue;
-      }
-      // M52: independent review — verdict berdasarkan bukti aktual, bukan klaim.
-      // Reviewer memeriksa: aksi gagal disembunyikan? klaim tanpa bukti? acceptance terpenuhi?
       const review = runReview({ contract, history, summary: step.summary });
-      if (review.verdict === REVIEW_VERDICT.REJECT) {
-        print('blocked', `Review DITOLAK — ${review.findings.filter(f => f.severity === 'BLOCKER').length} blocker.`);
-        review.findings.filter(f => f.severity === 'BLOCKER').slice(0, 4).forEach(f => printBlock(`  ✗ ${f.message}`, 2));
-        journalLog({ type: 'note', text: `review: REJECT — ${review.findings.filter(f => f.severity === 'BLOCKER').map(f => f.message).join('; ')}` });
-        pushHistory({
-          action: 'user_condition',
-          condition: `[SISTEM REVIEW: Klaim selesai DITOLAK oleh reviewer independen. ${review.findings.filter(f => f.severity === 'BLOCKER').map(f => f.message).join('; ')}. Perbaiki semua blocker sebelum ACTION: done.]`,
-        });
+      const completionDecision = evaluateCompletion({
+        checklist: taskState,
+        summary: step.summary,
+        history,
+        contract,
+        evidence: gateResults,
+        testResult,
+        review,
+      });
+      if (!completionDecision.approved) {
+        print('blocked', `Klaim selesai DITOLAK — ${completionDecision.reason}.`);
+        pushHistory({ action: 'user_condition', condition: `[SISTEM: ACTION done DITOLAK: ${completionDecision.reason}. Buktikan dengan aksi nyata sebelum done.]` });
         continue;
       }
-      // Review APPROVE -> catat di journal
-      journalLog({ type: 'note', text: `review: APPROVE — ${review.verifiedActions}/${review.totalActions} aksi terverifikasi` });
+      // Completion gate sudah mengevaluasi review; di sini hanya catat hasilnya.
+      journalLog({ type: 'note', text: `review: ${review.verdict} — ${review.verifiedActions}/${review.totalActions} aksi terverifikasi` });
 
       actionIndicator('done');
       print('done', step.summary);
@@ -400,7 +282,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       blank();
       printBlock(step.reply);
       blank();
-      pushHistory({ action: 'chat', reply: step.reply });
+      pushHistory(buildChatHistory(step.reply));
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: step.reply, actionType: 'chat', reasoning: step.reasoning });
       }
@@ -421,14 +303,11 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       // Offset/limit opsional dari model: kalau dia mau lanjut baca file gede,
       // dia bisa set step.limit + step.offset. Default 400 baris dengan nomor
       // baris — biar bug di baris 500 KELIHATAN, gak ketutup truncate 2000 char.
-      const r = readFileRange(step.target, step.offset || 1, step.limit || 400);
-      const preview = r.content;
-      const label = r.ok && r.totalLines > (r.end - r.start + 1)
-        ? `${step.target} (baris ${r.start}-${r.end} dari ${r.totalLines})`
-        : step.target;
+      const readResult = executeRead(step.target, step.offset || 1, step.limit || 400);
+      const { result: r, label, content: preview } = readResult;
       print('read', label);
       printBlock(preview);
-      pushHistory({ action: 'read', target: step.target, content: preview, range: { start: r.start, end: r.end, total: r.totalLines } });
+      pushHistory(buildReadHistory(step.target, preview, { start: r.start, end: r.end, total: r.totalLines }));
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `Read file: ${step.target}\n${preview}`, actionType: 'read', reasoning: step.reasoning });
       }
@@ -438,11 +317,10 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     // --- LIST_DIR ---
     if (step.action === 'list_dir') {
       actionIndicator('list_dir', step.target);
-      const listing = listDirSafe(step.target);
-      const dir = (step.target || '.').trim();
+      const { target: dir, listing } = executeListDir(step.target);
       print('list_dir', dir);
       printBlock(listing);
-      pushHistory({ action: 'list_dir', target: dir, listing });
+      pushHistory(buildListHistory(dir, listing));
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `Listed directory: ${dir}\n${listing}`, actionType: 'list_dir', reasoning: step.reasoning });
       }
@@ -452,9 +330,9 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     // --- REMEMBER ---
     if (step.action === 'remember') {
       actionIndicator('remember', step.key);
-      saveDecision({ key: step.key, value: step.value, context: instruction });
+      executeRemember(step.key, step.value, instruction);
       print('remember', `${step.key}: ${step.value}`);
-      pushHistory({ action: 'remember', key: step.key, value: step.value });
+      pushHistory(buildRememberHistory(step.key, step.value));
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `Remembered: ${step.key} = ${step.value}`, actionType: 'remember', reasoning: step.reasoning });
       }
@@ -482,19 +360,16 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         pushHistory({ action: 'delegate', agent: step.agent, task: step.task, approved: true, verified: false, error });
         continue;
       }
-      const result = await delegateTask(step.agent, step.task, {
-        cwd: process.cwd(),
-        sandbox: true,
-        outputFormat: 'json',
-        timeoutMs: 120_000,
-      });
+      const delegateRequest = buildDelegateRequest(step.agent, step.task, getWorkspaceRoot());
+      const result = await executeDelegate(delegateRequest.agent, delegateRequest.task, delegateRequest.options);
       if (result.ok) {
         print('delegate_ok', `${step.agent}: ${result.summary.slice(0, 2000)}`);
-        pushHistory({ action: 'delegate', agent: step.agent, task: step.task, summary: result.summary, artifacts: result.artifacts || [], changed_files: result.changed_files || [], tests: result.tests || [], tests_passed: result.tests_passed === true, approved: true, verified: result.verified === true });
+        pushHistory(buildDelegateHistory(step.agent, step.task, { summary: result.summary, artifacts: result.artifacts || [], changed_files: result.changed_files || [], tests: result.tests || [], tests_passed: result.tests_passed === true, approved: true, verified: result.verified === true }));
       } else {
-        print('delegate_err', `${step.agent}: ${result.error || 'gagal'}`);
-        pushHistory({ action: 'delegate', agent: step.agent, task: step.task, approved: true, verified: false, error: result.error || 'gagal' });
-        pushHistory({ action: 'user_condition', condition: `[SISTEM: Delegasi ke ${step.agent} GAGAL: ${result.error || 'gagal'}. Kamu WAJIB memperbaiki task atau coba pendekatan lain sebelum bilang done.]` });
+        const delegateError = normalizeDelegateError(result);
+        print('delegate_err', `${step.agent}: ${delegateError}`);
+        pushHistory({ action: 'delegate', agent: step.agent, task: step.task, approved: true, verified: false, error: delegateError });
+        pushHistory({ action: 'user_condition', condition: `[SISTEM: Delegasi ke ${step.agent} GAGAL: ${delegateError}. Kamu WAJIB memperbaiki task atau coba pendekatan lain sebelum bilang done.]` });
       }
       continue;
     }
@@ -504,16 +379,17 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       actionIndicator('mcp_call', step.tool);
       print('mcp', `Memanggil tool: ${step.tool}`);
       try {
-        const result = await callTool(step.tool, step.toolArgs, toolsForAgent);
+        const mcpRequest = buildMcpRequest(step.tool, step.toolArgs);
+        const result = await executeMcp(mcpRequest.tool, mcpRequest.args, toolsForAgent);
         print('mcp', 'Hasil:');
         printBlock(result.slice(0, 2500) + (result.length > 500 ? '...' : ''));
-        pushHistory({ action: 'mcp_call', tool: step.tool, result: wrapUntrusted(result, 'mcp_call', step.tool) });
+        pushHistory(buildMcpHistory(step.tool, wrapUntrusted(result, 'mcp_call', step.tool)));
         if (threadId) {
           logStep({ threadId, role: 'assistant', content: `Called tool: ${step.tool}\nResult: ${result.slice(0, 500)}${result.length > 500 ? '...' : ''}`, actionType: 'mcp_call', detail: { tool: step.tool, result }, reasoning: step.reasoning });
         }
       } catch (err) {
         print('mcp_err', err.message);
-        pushHistory({ action: 'mcp_call', tool: step.tool, result: `ERROR: ${err.message}` });
+        pushHistory(historyError('mcp_call', err.message, { tool: step.tool, result: `ERROR: ${err.message}` }));
         if (threadId) {
           logStep({ threadId, role: 'assistant', content: `Tool error: ${step.tool}\nError: ${err.message}`, actionType: 'mcp_call', detail: { tool: step.tool, error: err.message }, reasoning: step.reasoning });
         }
@@ -541,14 +417,11 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         // Kalau model tetap memilih search setelah budget habis, pakai URL resmi yang
         // sudah ditemukan untuk fetch sekali—jangan buang hasil riset cuma karena
         // model mengulang ACTION web_search.
-        const candidates = history
-          .filter(h => h.action === 'web_search')
-          .flatMap(h => String(h.summary || '').match(/https?:\/\/[^\s)]+/g) || []);
-        const official = candidates.find(u => /bmkg\.go\.id|\.gov\.|\.go\.id\//i.test(u));
-        const chosen = official || candidates[0];
+        const candidates = collectUrls(history);
+        const chosen = chooseOfficialUrl(candidates);
         if (chosen && budget.consume('fetch')) {
           print('info', `Batas search tercapai — ambil isi sumber: ${chosen}`);
-          const page = await fetchWebPage(chosen);
+          const page = await executeFetch(chosen);
           if (page.ok) {
             pushHistory({ action: 'web_fetch', url: page.url, summary: wrapUntrusted(focusWebText(page.text, instruction).slice(0, 30000), 'web_fetch', page.url) });
             actionIndicator('web_fetch', chosen);
@@ -561,7 +434,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         print('info', `Budget search habis (${budget.snapshot().limits.searches}x) — memaksa rangkuman dari data yang ada.`);
         const researchPacket = packetFromHistory(history, instruction);
         const compactEvidence = compactResearchContext(researchPacket, { maxChars: 1500 });
-        const forcedInstruction = `${instruction}\n\n[SISTEM: Kamu sudah mencapai batas pencarian web. WAJIB ACTION: done sekarang. Tulis SUMMARY singkat dari evidence data yang sudah ada. Fokus pada angka, kondisi, lokasi, waktu, dan fakta yang menjawab pertanyaan user. Jangan menyalin menu/navigasi/URL mentah. Evidence terstruktur:\n${compactEvidence}\nDILARANG ACTION: web_search atau ACTION: mcp_call apapun di langkah ini.]`;
+        const forcedInstruction = buildForcedResearchPrompt(instruction, compactEvidence);
         const fr = await planStepWithRetry(askWithFallback, { instruction: forcedInstruction, fileSnapshot, history, agentMd, recentMemory, availableTools: toolsForAgent, webSearchCount, systemPromptOverride }, { maxAttempts: 2 });
         const forcedStep = fr.ok ? fr.step : { action: 'done', summary: '', reasoning: 'paksa selesai (model gak kooperatif)' };
         // Model gak kooperatif / summary kosong → jawab dari evidence terstruktur,
@@ -585,27 +458,26 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
 
       print('web_search', step.query);
       try {
-        const { provider, results } = await searchWeb(step.query);
+        const { provider, results } = await executeSearch(step.query);
         print('sources', results.length ? results.map(r => r.url).join('\n') : '(tidak ada hasil)');
         const summary = results
           .map((r, idx) => `[${idx + 1}] ${r.title}\n${r.url}\n${r.snippet}`)
           .join('\n\n');
-        pushHistory({ action: 'web_search', query: step.query, provider, summary: wrapUntrusted(summary || '(tidak ada hasil)', 'web_search', step.query) });
+        const searchRecord = buildSearchRecord(step.query, provider, results);
+        pushHistory({ ...searchRecord, summary: wrapUntrusted(searchRecord.summary, 'web_search', step.query) });
 
         // Safety net fleksibel: kalau sudah dua search dan belum pernah membaca
         // halaman, ambil satu sumber resmi terbaik. Model tetap boleh langsung
         // done pada kasus snippet yang cukup; fetch ini hanya memastikan riset
         // data-spesifik (cuaca/harga/status) gak berhenti di daftar URL.
         if (webSearchCount >= 2 && !history.some(h => h.action === 'web_fetch') && budget.consume('fetch')) {
-          const candidates = history
-            .filter(h => h.action === 'web_search')
-            .flatMap(h => String(h.summary || '').match(/https?:\/\/[^\s)]+/g) || []);
-          const official = candidates.find(u => /bmkg\.go\.id|\.gov\.|\.go\.id\//i.test(u));
+          const candidates = collectUrls(history);
+          const official = chooseOfficialUrl(candidates);
           const ordered = [...new Set([official, ...candidates].filter(Boolean))];
           let fetched = false;
           for (const chosen of ordered.slice(0, 3)) {
             print('info', `Dua search selesai — baca sumber terbaik: ${chosen}`);
-            const page = await fetchWebPage(chosen);
+            const page = await executeFetch(chosen);
             if (page.ok) {
               pushHistory({ action: 'web_fetch', url: page.url, summary: wrapUntrusted(focusWebText(page.text, instruction).slice(0, 30000), 'web_fetch', page.url) });
               actionIndicator('web_fetch', chosen);
@@ -634,12 +506,12 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     if (step.action === 'web_fetch') {
       if (!budget.consume('fetch')) {
         print('blocked', `Budget fetch habis (${budget.snapshot().limits.fetches}x) — pakai data yang sudah ada di history.`);
-        pushHistory({ action: 'user_condition', condition: `Budget web_fetch habis. Jangan fetch lagi; rangkum evidence yang sudah ada.` });
+        pushHistory(historyCondition(`Budget web_fetch habis. Jangan fetch lagi; rangkum evidence yang sudah ada.`));
         continue;
       }
       actionIndicator('web_fetch', step.url);
       try {
-        const page = await fetchWebPage(step.url);
+        const page = await executeFetch(step.url);
         if (!page.ok) {
           print('search_err', `Fetch gagal (${page.error})${page.status ? ` HTTP ${page.status}` : ''}`);
           pushHistory({ action: 'web_fetch', url: step.url, summary: `ERROR: ${page.error}${page.status ? ` HTTP ${page.status}` : ''}`, verified: false, error: page.error });
@@ -648,7 +520,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           printBlock(summary.slice(0, 800), 2);
           print('info', `Isi halaman disimpan ke history (${summary.length} karakter) — agent akan merangkum, bukan menyalin mentah.`);
           const fetchVerification = verifyAction({ action: 'web_fetch', text: summary });
-          pushHistory({ action: 'web_fetch', url: page.url, summary: focusWebText(summary, instruction).slice(0, 30000), verified: fetchVerification.ok, error: fetchVerification.ok ? undefined : fetchVerification.reason });
+          pushHistory(buildFetchRecord(page.url, focusWebText(summary, instruction).slice(0, 30000), fetchVerification.ok, fetchVerification.reason));
           if (threadId) {
             logStep({ threadId, role: 'assistant', content: `Fetched: ${page.url}`, actionType: 'web_fetch', detail: { url: page.url, status: page.status, chars: summary.length }, reasoning: step.reasoning });
           }
@@ -663,6 +535,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     // --- WRITE / APPEND / MKDIR ---
     if (step.action === 'write' || step.action === 'append' || step.action === 'mkdir') {
       actionIndicator(step.action, step.target);
+      const targetPath = resolveWorkspacePath(step.target);
       const rejected = rejectWriteReason(step.target, step.action);
       if (rejected) {
         print('blocked', `${step.action} ditolak: ${rejected}`);
@@ -671,32 +544,33 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       }
       if (step.action === 'write' || step.action === 'append') {
         print('diff', step.target);
-        const before = fs.existsSync(step.target) ? fs.readFileSync(step.target, 'utf8') : '';
+        const before = fs.existsSync(targetPath) ? fs.readFileSync(targetPath, 'utf8') : '';
         printBlock(showDiff(before, step.action === 'append' ? before + step.content : step.content));
       } else printBlock(`Direktori baru: ${step.target}`);
       sep();
       const opApproval = await askApproval(step.action);
       if (!opApproval.approved) return `${step.action} dibatalkan, task dihentikan.`;
       try {
-        const oldContent = fs.existsSync(step.target) ? fs.readFileSync(step.target, 'utf8') : '';
-        const content = step.action === 'append' ? oldContent + step.content : step.content;
-        if (step.action !== 'mkdir') saveSnapshot({ filepath: step.target, content: oldContent, isNewFile: !fs.existsSync(step.target) });
-        const result = applySafeFileOp(step.action, step.target, step.content);
+        const oldContent = fs.existsSync(targetPath) ? fs.readFileSync(targetPath, 'utf8') : '';
+        const mutation = buildMutationPlan({ action: step.action, target: step.target, before: oldContent, content: step.content });
+        const content = mutation.finalContent;
+        if (step.action !== 'mkdir') saveSnapshot({ filepath: step.target, content: oldContent, isNewFile: !fs.existsSync(targetPath) });
+        const result = executeSafeMutation(step.action, step.target, step.content);
         if (!result.ok) return `${step.action} gagal: ${result.error}`;
         // M44: auto-lint gate — cek syntax file JS setelah tulis, rollback kalau error
         if (step.action !== 'mkdir') {
-          const lint = lintAfterWrite(step.target, oldContent);
+          const lint = lintWrittenFile(step.target, oldContent);
           if (!lint.ok) {
             print('error', lint.error);
             pushHistory({ action: step.action, target: step.target, approved: true, verified: false, error: lint.error });
-            pushHistory({ action: 'user_condition', condition: buildRecoveryHint({ error: lint.error, action: step.action, attempt: consecutiveFailures + 1 }) });
+            pushHistory({ action: 'user_condition', condition: recoveryHint({ error: lint.error, action: step.action, attempt: consecutiveFailures + 1 }) });
             continue;
           }
         }
-        const actual = step.action === 'mkdir' ? fs.existsSync(step.target) : fs.readFileSync(step.target, 'utf8');
-        const verification = step.action === 'mkdir' ? { ok: fs.statSync(step.target).isDirectory(), reason: 'direktori terbukti ada' } : verifyAction({ action: 'edit', target: step.target, expectedContent: content, actualContent: actual });
+        const actual = step.action === 'mkdir' ? fs.existsSync(targetPath) : fs.readFileSync(targetPath, 'utf8');
+        const verification = step.action === 'mkdir' ? { ok: fs.statSync(targetPath).isDirectory(), reason: 'direktori terbukti ada' } : verifyAction({ action: 'edit', target: step.target, expectedContent: content, actualContent: actual });
         print(verification.ok ? 'verify_ok' : 'error', verification.reason);
-        pushHistory({ action: step.action, target: step.target, approved: true, verified: verification.ok, error: verification.ok ? undefined : verification.reason });
+        pushHistory(buildMutationHistory(step.action, step.target, result, verification));
         continue;
       } catch (err) {
         pushHistory({ action: step.action, target: step.target, verified: false, error: err.message });
@@ -711,6 +585,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     if (step.action === 'edit') {
       actionIndicator('edit', step.target);
       const target = step.target;
+      const targetPath = resolveWorkspacePath(target);
 
       // Guard EKSPLISIT: readFileSafe menolak di jalur BACA, tapi tulis butuh cek
       // sendiri — tanpa ini path terblokir (.env, .git, keluar root) tetap ke-tulis.
@@ -723,8 +598,9 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         continue;
       }
 
-      const existedBefore = fs.existsSync(target);
-      const oldContent = existedBefore ? fs.readFileSync(target, 'utf8') : '';
+      const existedBefore = fs.existsSync(targetPath);
+      const oldContent = existedBefore ? fs.readFileSync(targetPath, 'utf8') : '';
+      const editPlan = buildEditPlan(target, oldContent, step.new_content);
 
       print('diff', target);
       printBlock(showDiff(oldContent, step.new_content));
@@ -748,35 +624,35 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       // jangan tulis tanpa jaring pengaman rollback.
       try {
         saveSnapshot({ filepath: target, content: oldContent, isNewFile: !existedBefore });
-        print('snapshot', existedBefore ? `${target} disimpan.` : `${target} (file baru) — rollback = hapus file.`);
+        print('snapshot', editPlan.existedBefore ? `${target} disimpan.` : `${target} (file baru) — rollback = hapus file.`);
       } catch (err) {
         print('error', `Gagal simpan snapshot: ${err.message} — edit DIBATALKAN.`);
         return 'Edit dibatalkan: snapshot gagal disimpan.';
       }
 
       try {
-        const parent = path.dirname(target);
+        const parent = path.dirname(targetPath);
         if (parent && !fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true });
-        fs.writeFileSync(target, step.new_content, 'utf8');
+        fs.writeFileSync(targetPath, step.new_content, 'utf8');
       } catch (err) {
         print('error', `Gagal menulis ${target}: ${err.message}`);
         pushHistory({ action: 'edit', target, approved: true, error: err.message });
         return `Edit gagal: ${err.message}`;
       }
       // M44: auto-lint gate untuk edit
-      const editLint = lintAfterWrite(target, oldContent);
+      const editLint = lintWrittenFile(target, oldContent);
       if (!editLint.ok) {
         print('error', editLint.error);
-        pushHistory({ action: 'edit', target, approved: true, verified: false, error: editLint.error });
-        pushHistory({ action: 'user_condition', condition: buildRecoveryHint({ error: editLint.error, action: 'edit', attempt: consecutiveFailures + 1 }) });
+        pushHistory(buildEditHistory(target, false, editLint.error));
+        pushHistory(historyCondition(recoveryHint({ error: editLint.error, action: 'edit', attempt: consecutiveFailures + 1 })));
         continue;
       }
 
-      const editVerification = verifyAction({ action: 'edit', target, expectedContent: step.new_content, actualContent: fs.readFileSync(target, 'utf8') });
+      const editVerification = verifyAction({ action: 'edit', target, expectedContent: step.new_content, actualContent: fs.readFileSync(targetPath, 'utf8') });
       print(editVerification.ok ? 'verify_ok' : 'error', editVerification.reason);
       print('edit_ok', `${target} ${existedBefore ? 'diupdate' : 'dibuat'}.`);
       lastTarget = target;
-      pushHistory({ action: 'edit', target, approved: true, verified: editVerification.ok, error: editVerification.ok ? undefined : editVerification.reason });
+      pushHistory(buildEditHistory(target, editVerification.ok, editVerification.reason));
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `File edited: ${target}`, actionType: 'edit', detail: { target, applied: true, isNewFile: !existedBefore }, reasoning: step.reasoning });
       }
@@ -801,6 +677,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       }
 
       const info = inspectTarget(step.target);
+      const destructivePlan = buildDestructivePlan(step.action, step.target, step.dest, info);
       const reject = rejectReason(step.target, info);
       if (reject) {
         print('blocked', `Tidak bisa ${step.action} ${step.target}: ${reject}`);
@@ -814,16 +691,8 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       // Tampilkan APA yang bakal kena, jangan cuma nama file. Hapus file
       // tanpa nunjukin isinya = user approve sesuatu yang dia gak liat.
       print('diff', step.dest ? `${step.target} → ${step.dest}` : step.target);
-      const desc = describeTarget(step.target, info);
-      if (info.kind === 'file_binary') {
-        printBlock(desc);
-      } else if (step.action === 'delete' && info.content !== null && info.content !== undefined) {
-        const previewLines = (info.preview || '').split('\n');
-        const body = previewLines.map((l, i) => `  ${i + 1} | ${l}`).join('\n');
-        printBlock(`${desc}\n\nIsi yang bakal DIHAPUS:\n${body}${info.more > 0 ? `\n  ... (${info.more} baris lagi)` : ''}`);
-      } else {
-        printBlock(desc);
-      }
+      const desc = describeTarget(destructivePlan.target, destructivePlan.info);
+      printBlock(formatDestructivePreview({ action: destructivePlan.action, target: destructivePlan.target, info: destructivePlan.info, description: desc }));
       sep();
 
       const opApproval = await askApproval(step.action);
@@ -852,18 +721,17 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         }
       }
 
-      const res = applyFileOp(step.action, step.target, step.dest);
+      const res = executeDestructive(step.action, step.target, step.dest);
       if (!res.ok) {
         print('error', `Gagal ${step.action} ${step.target}: ${res.error}`);
         pushHistory({ action: step.action, target: step.target, approved: true, error: res.error });
         return `${step.action} gagal: ${res.error}`;
       }
 
-      const verb = step.action === 'delete' ? 'dihapus'
-        : step.action === 'rename' ? `di-rename ke ${step.dest}` : `dipindah ke ${step.dest}`;
+      const verb = destructiveVerb(step.action, step.dest);
       print(`${step.action}_ok`, `${step.target} ${verb}.`);
       lastTarget = step.dest || step.target;
-      pushHistory({ action: step.action, target: step.target, dest: step.dest, approved: true });
+      pushHistory(buildDestructiveHistory(step.action, step.target, step.dest, true));
       if (threadId) {
         logStep({ threadId, role: 'assistant', content: `${step.action} applied: ${step.target}`, actionType: step.action, detail: { target: step.target, dest: step.dest, applied: true }, reasoning: step.reasoning });
       }
@@ -909,25 +777,25 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         pushHistory({ action: 'user_condition', condition: bashApproval.condition });
       }
 
-      const result = await runCommand(step.command);
+      const result = await executeBash(step.command);
       const bashVerification = verifyAction({ action: 'bash', result });
       print(bashVerification.ok ? 'verify_ok' : 'error', bashVerification.reason);
       print('exit_code', `${result.code}  stdout: ${result.stdout || '(kosong)'}`);
       if (result.stderr) print('stderr', result.stderr);
 
       if (threadId) {
-        logStep({ threadId, role: 'assistant', content: `Command executed: ${step.command}\nExit code: ${result.code}\nStdout: ${result.stdout || '(kosong)'}`, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider, ...result }, reasoning: step.reasoning, approved: true });
+        logStep({ threadId, role: 'assistant', content: formatBashOutput(step.command, result), actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider, ...result }, reasoning: step.reasoning, approved: true });
       } else {
         logStep({ task: instruction, actionType: 'bash', detail: { command: step.command, providerUsed: fallbackState.lastProvider, ...result }, reasoning: step.reasoning, approved: true });
       }
-      pushHistory({ action: 'bash', command: step.command, approved: true, result, verified: bashVerification.ok, error: bashVerification.ok ? undefined : bashVerification.reason });
+      pushHistory(buildBashHistory(step.command, result, bashVerification));
 
       // M50: recovery engine. Bash yang gagal tidak cuma dicatat — diklasifikasi
       // lalu diberi hint spesifik supaya model memperbaiki penyebabnya, bukan
       // mengulang command yang sama.
       if (!bashVerification.ok) {
         consecutiveFailures++;
-        const decision = decideRecovery({
+        const decision = decideBashRecovery({
           error: `${result.stderr || ''} ${bashVerification.reason || ''} exit ${result.code}`,
           action: 'bash',
           command: step.command,
@@ -938,14 +806,14 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
           const stopMsg = `Task dihentikan oleh recovery engine: ${decision.reason}`;
           print('stop', stopMsg);
           journalLog({ type: 'status', status: TASK_STATUS.FAILED, reason: decision.reason });
-          pushHistory({ action: 'note', text: stopMsg });
+          pushHistory(historyNote(stopMsg))
           return stopMsg;
         }
-        pushHistory({ action: 'user_condition', condition: buildRecoveryHint({
+        pushHistory(historyCondition(recoveryHint({
           error: `${result.stderr || ''} ${bashVerification.reason || ''}`,
           action: 'bash',
           attempt: consecutiveFailures,
-        }) });
+        })));
       } else {
         consecutiveFailures = 0;
       }

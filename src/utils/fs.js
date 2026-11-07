@@ -2,8 +2,9 @@
 
 import fs from 'fs';
 import path from 'path';
+import { getWorkspaceRoot, resolveWorkspacePath } from '../core/workspace.js';
 
-const ALLOW_ROOT = path.resolve(process.cwd());
+const getAllowRoot = () => getWorkspaceRoot();
 
 const BLOCKED_NAMES = new Set([
   '.env', '.env.local', '.env.production', '.env.development',
@@ -23,9 +24,10 @@ const BLOCKED_SEGMENTS = ['.git'];
 export function isSafePath(target) {
   if (!target) return false;
 
+  const ALLOW_ROOT = getAllowRoot();
   let resolved;
   try {
-    resolved = path.resolve(target);
+    resolved = resolveWorkspacePath(target);
   } catch {
     return false;
   }
@@ -58,13 +60,14 @@ export function isSafePath(target) {
  * @returns {string}
  */
 export function readFileSafe(target) {
-  if (!target || !fs.existsSync(target)) return '(file tidak ditemukan)';
+  const resolved = resolveWorkspacePath(target);
+  if (!target || !fs.existsSync(resolved)) return '(file tidak ditemukan)';
 
   if (!isSafePath(target)) {
     return '(ACCESS DENIED: path diblokir karena keamanan)';
   }
 
-  return fs.readFileSync(target, 'utf8');
+  return fs.readFileSync(resolved, 'utf8');
 }
 
 /**
@@ -82,20 +85,21 @@ export function readFileSafe(target) {
 export function readFileRange(target, offset = 1, limit = 400) {
   const off = Math.max(1, Number(offset) || 1);
   const lim = Math.max(1, Math.min(Number(limit) || 400, 5000));
+  const resolved = target ? resolveWorkspacePath(target) : null;
 
-  if (!target || !fs.existsSync(target)) {
+  if (!target || !fs.existsSync(resolved)) {
     return { ok: false, content: '(file tidak ditemukan)', totalLines: 0, start: 0, end: 0, error: 'not_found' };
   }
   if (!isSafePath(target)) {
     return { ok: false, content: '(ACCESS DENIED: path diblokir karena keamanan)', totalLines: 0, start: 0, end: 0, error: 'blocked' };
   }
-  if (fs.statSync(target).isDirectory()) {
+  if (fs.statSync(resolved).isDirectory()) {
     return { ok: false, content: `(ini direktori, bukan file — pakai list_dir)`, totalLines: 0, start: 0, end: 0, error: 'is_dir' };
   }
 
   let all;
   try {
-    all = fs.readFileSync(target, 'utf8').split('\n');
+    all = fs.readFileSync(resolved, 'utf8').split('\n');
   } catch (err) {
     return { ok: false, content: `(gagal baca: ${err.message})`, totalLines: 0, start: 0, end: 0, error: 'read_failed' };
   }
@@ -124,14 +128,15 @@ export function readFileRange(target, offset = 1, limit = 400) {
  */
 export function listDirSafe(target) {
   const dir = (target || '.').trim();
-  if (!fs.existsSync(dir)) return `(direktori '${dir}' tidak ditemukan)`;
+  const resolved = resolveWorkspacePath(dir);
+  if (!fs.existsSync(resolved)) return `(direktori '${dir}' tidak ditemukan)`;
 
   if (!isSafePath(dir)) {
     return '(ACCESS DENIED: path diblokir karena keamanan)';
   }
 
   try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const entries = fs.readdirSync(resolved, { withFileTypes: true });
     if (entries.length === 0) return '(kosong)';
 
     return entries
@@ -148,7 +153,7 @@ export function listDirSafe(target) {
  * @returns {string|null}
  */
 export function loadAgentMd() {
-  const pathMd = './AGENT.md';
+  const pathMd = resolveWorkspacePath('AGENT.md');
   if (!fs.existsSync(pathMd)) return null;
   return fs.readFileSync(pathMd, 'utf8');
 }

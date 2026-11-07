@@ -1,0 +1,11 @@
+import { executeRead, executeListDir } from '../src/core/execution/read.js';
+let pass = 0; let fail = 0;
+const check = (label, ok) => ok ? (pass++, console.log(`PASS ${label}`)) : (fail++, console.log(`FAIL ${label}`));
+const read = executeRead('x.js', 2, 3, { readFileRange: (target, offset, limit) => ({ ok: true, content: '2|line', start: offset, end: offset + limit - 1, totalLines: 9 }) });
+check('read boundary delegates range', read.result.start === 2 && read.result.totalLines === 9);
+check('read boundary preserves formatted content', read.content === '2|line');
+const list = executeListDir('  src  ', { listDirSafe: dir => `listed:${dir}` });
+check('list boundary normalizes target', list.target === 'src');
+check('list boundary delegates listing', list.listing === 'listed:src');
+console.log(`=== HASIL READ-BOUNDARY: ${pass} pass, ${fail} fail ===`);
+if (fail) process.exit(1);

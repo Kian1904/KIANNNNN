@@ -1,5 +1,6 @@
 // M30/M32: runtime adapters with bounded execution and explicit approval.
 import { spawn } from 'child_process';
+import { getWorkspaceRoot } from './core/workspace.js';
 
 const TOOLCHAINS = {
   python: { language: 'python', run: 'python3', test: 'pytest', compile: null, required: true },
@@ -9,7 +10,7 @@ const TOOLCHAINS = {
 };
 export function getToolchain(language) { return TOOLCHAINS[language] || null; }
 function commandFor(language, source) { const t = getToolchain(language); if (!t) throw new Error(`toolchain tidak dikenal: ${language}`); if (language === 'python') return ['python3', ['-c', source]]; if (language === 'go') return ['go', ['run', source]]; return ['node', ['-e', source]]; }
-export function runToolchain(language, source, { cwd = process.cwd(), approve = async () => true, timeoutMs = 30000 } = {}) {
+export function runToolchain(language, source, { cwd = getWorkspaceRoot(), approve = async () => true, timeoutMs = 30000 } = {}) {
   return new Promise(async resolve => {
     const ok = await approve(language);
     if (!ok) return resolve({ ok: false, blocked: true, code: null, stdout: '', stderr: 'toolchain approval ditolak' });

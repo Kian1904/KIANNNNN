@@ -110,7 +110,9 @@ fs.writeFileSync(bigFile, lines.join('\n'));
   check('direktori → ok:false', rDir.ok === false);
   check('arahin ke list_dir', rDir.content.includes('list_dir'));
   // Jalur yang emang HARUS diblokir — verifikasi guard-nya masih hidup.
-  const rEnv = readFileRange(path.join(process.cwd(), '.env'));
+  const sensitive = path.join(tmp, '.env');
+  fs.writeFileSync(sensitive, 'SECRET=do-not-read');
+  const rEnv = readFileRange(sensitive);
   check('.env tetap DIBLOKIR', rEnv.ok === false && rEnv.error === 'blocked', `err=${rEnv.error}`);
 
   // ── [8] read range: cocok dengan potongan manual (regresi truncate) ──

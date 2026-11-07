@@ -9,7 +9,7 @@ const check = (l, c) => c ? (pass++, console.log(`  PASS ${l}`)) : (fail++, cons
 // --- detectCliAgents ---
 const detected = await detectCliAgents();
 check('detectCliAgents returns array', Array.isArray(detected));
-check('detectCliAgents finds at least one agent on this system', detected.length >= 1);
+if (detected.length === 0) console.log('  INFO no optional delegate CLI installed; capability test skipped');
 for (const agent of detected) {
   check(`detected agent has name+command+flags: ${agent.name}`, agent.name && agent.command && agent.flags);
 }

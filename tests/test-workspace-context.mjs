@@ -1,0 +1,14 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { setWorkspaceRoot, getWorkspaceRoot } from '../src/core/workspace.js';
+import { readFileSafe, readFileRange, listDirSafe, loadAgentMd, isSafePath } from '../src/utils/fs.js';
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'kian-ws-')); fs.writeFileSync(path.join(root,'x.txt'),'ok');
+setWorkspaceRoot(root);
+let pass=0,fail=0; const check=(l,c)=>c?(pass++,console.log(`  PASS ${l}`)):(fail++,console.log(`  FAIL ${l}`));
+check('root set',getWorkspaceRoot()===root); check('relative read resolves in workspace',readFileSafe('x.txt')==='ok'); check('workspace path safe',isSafePath('x.txt')); check('outside path blocked',!isSafePath('../outside.txt'));
+check('range read resolves in workspace',readFileRange('x.txt').content.includes('ok'));
+check('list dir resolves in workspace',listDirSafe('.').includes('x.txt'));
+fs.writeFileSync(path.join(root,'AGENT.md'),'agent context');
+check('AGENT.md resolves in workspace',loadAgentMd()==='agent context');
+fs.rmSync(root,{recursive:true,force:true}); console.log(`\n=== HASIL WORKSPACE-CONTEXT: ${pass} pass, ${fail} fail ===`); if(fail)process.exit(1);
