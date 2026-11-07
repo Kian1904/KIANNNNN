@@ -34,6 +34,7 @@ const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:task]', ...args); };
 /** Evidence mapping lives in src/core/evidence.js. */
 import { evidenceForContract } from './core/evidence.js';
 import { createTaskContext } from './core/task-context.js';
+import { getWorkspaceRoot } from './core/workspace.js';
 import { createTaskRuntimeConfig } from './core/task-config.js';
 import { checkAllowedAction } from './core/action-policy.js';
 import { formatReadResult, normalizeListTarget } from './core/fs-actions.js';
@@ -68,7 +69,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     agentConfig,
     threadId,
     journalEnabled: readEnv('JOURNAL') !== '0',
-    workspaceRoot: process.env.KIAN_WORKSPACE || process.cwd(),
+    workspaceRoot: getWorkspaceRoot(),
   });
   const { history, contract, journal, journalLog, pushHistory } = taskContext;
   let taskState = null;
@@ -200,7 +201,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
       const needsTest = contract.acceptance.some(a => /test/i.test(a.text));
       let testResult = null;
       if (needsTest) {
-        const detected = detectTestRunner({ root: process.cwd() });
+        const detected = detectTestRunner({ root: getWorkspaceRoot() });
         if (detected) {
           const cmd = buildTestCommand(detected);
           print('info', `M51 test orchestrator: menjalankan ${cmd}`);
@@ -359,7 +360,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
         pushHistory({ action: 'delegate', agent: step.agent, task: step.task, approved: true, verified: false, error });
         continue;
       }
-      const delegateRequest = buildDelegateRequest(step.agent, step.task, process.cwd());
+      const delegateRequest = buildDelegateRequest(step.agent, step.task, getWorkspaceRoot());
       const result = await executeDelegate(delegateRequest.agent, delegateRequest.task, delegateRequest.options);
       if (result.ok) {
         print('delegate_ok', `${step.agent}: ${result.summary.slice(0, 2000)}`);
