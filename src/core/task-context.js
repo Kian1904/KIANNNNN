@@ -1,5 +1,6 @@
 import { buildTaskContract } from '../task-contract.js';
 import { TASK_STATUS, createJournal, appendEntry } from '../task-journal.js';
+import { setWorkspaceRoot, getWorkspaceRoot } from './workspace.js';
 
 /**
  * Create the state shared by one single-agent task.
@@ -13,7 +14,9 @@ export function createTaskContext({
   journalDir,
   cwd = process.cwd(),
   taskId = `t-${Date.now()}-${process.pid}`,
+  workspaceRoot,
 } = {}) {
+  if (workspaceRoot) setWorkspaceRoot(workspaceRoot);
   const history = [];
   const contract = agentConfig && agentConfig.contractEnabled === false
     ? { goal: '', constraints: [], acceptance: [], risk: 'low', instruction: '' }

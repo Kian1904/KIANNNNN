@@ -2,8 +2,9 @@
 
 import fs from 'fs';
 import path from 'path';
+import { getWorkspaceRoot, resolveWorkspacePath } from '../core/workspace.js';
 
-const ALLOW_ROOT = path.resolve(process.cwd());
+const getAllowRoot = () => getWorkspaceRoot();
 
 const BLOCKED_NAMES = new Set([
   '.env', '.env.local', '.env.production', '.env.development',
@@ -23,9 +24,10 @@ const BLOCKED_SEGMENTS = ['.git'];
 export function isSafePath(target) {
   if (!target) return false;
 
+  const ALLOW_ROOT = getAllowRoot();
   let resolved;
   try {
-    resolved = path.resolve(target);
+    resolved = resolveWorkspacePath(target);
   } catch {
     return false;
   }
@@ -58,13 +60,14 @@ export function isSafePath(target) {
  * @returns {string}
  */
 export function readFileSafe(target) {
-  if (!target || !fs.existsSync(target)) return '(file tidak ditemukan)';
+  const resolved = resolveWorkspacePath(target);
+  if (!target || !fs.existsSync(resolved)) return '(file tidak ditemukan)';
 
   if (!isSafePath(target)) {
     return '(ACCESS DENIED: path diblokir karena keamanan)';
   }
 
-  return fs.readFileSync(target, 'utf8');
+  return fs.readFileSync(resolved, 'utf8');
 }
 
 /**

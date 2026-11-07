@@ -68,6 +68,7 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
     agentConfig,
     threadId,
     journalEnabled: readEnv('JOURNAL') !== '0',
+    workspaceRoot: process.env.KIAN_WORKSPACE || process.cwd(),
   });
   const { history, contract, journal, journalLog, pushHistory } = taskContext;
   let taskState = null;
