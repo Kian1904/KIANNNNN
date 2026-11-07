@@ -12,7 +12,7 @@ export function setWorkspaceRoot(root) {
 export function getWorkspaceRoot() { return workspaceRoot; }
 
 export function resolveWorkspacePath(target = '.') {
-  return path.resolve(workspaceRoot, target);
+  return path.resolve(workspaceRoot, target || '.');
 }
 
 /** Find a workspace from cwd without silently selecting the installed CLI repo. */
