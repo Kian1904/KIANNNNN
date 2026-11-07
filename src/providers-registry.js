@@ -110,10 +110,19 @@ function applyEnvOverrides(providers) {
   const toEnvName = (providerName) =>
     providerName.toUpperCase().replace(/-/g, '_') + '_API_KEY';
 
+  const toModelEnvName = (providerName) =>
+    providerName.toUpperCase().replace(/-/g, '_') + '_MODEL';
+
   const envNameOverride = { 'xkiro-coder': 'XKIRO_API_KEY' };
+  const modelEnvOverride = { 'xkiro-coder': 'XKIRO_CODER_MODEL' };
 
   const getEnvKey = (providerName) => {
     const envName = envNameOverride[providerName] || toEnvName(providerName);
+    return process.env[envName];
+  };
+
+  const getEnvModel = (providerName) => {
+    const envName = modelEnvOverride[providerName] || toModelEnvName(providerName);
     return process.env[envName];
   };
 
@@ -122,7 +131,10 @@ function applyEnvOverrides(providers) {
     if (envVal) {
       p.apiKey = envVal;
     }
-    // else keep whatever is in settings (could be empty)
+    const envModel = getEnvModel(p.name);
+    if (envModel) {
+      p.model = envModel;
+    }
   }
 }
 
