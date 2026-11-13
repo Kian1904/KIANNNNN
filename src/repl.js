@@ -9,7 +9,7 @@ import { runInstruction, getActiveAgent, setActiveAgent, listAgents, plan, execu
 import { discoverTools } from '../mcp/client.js';
 import { print, printBlock, printUserMessage, printAssistantMessage, printSystemMessage, header, sep, blank, PROMPT, completer, banner } from './ui.js';
 import { createSquadUiState, applySquadEvent, renderPlainSquad, shouldUseInk } from './squad-ui.js';
-import { startInkSquadUi } from './ink-squad-ui.js';
+import { startInkSquadUi } from './renderer/SquadView.tsx';
 import { readEnv } from './env.js';
 import * as tui from './tui.js';
 import { classifyIntent } from './intent.js';

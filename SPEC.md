@@ -1694,3 +1694,58 @@ Validasi instalasi. `src/install-check.js`:
 ```text
 full suite : 1258 pass, 0 fail | 68 file
 ```
+
+## M47 — Layer TUI pindah ke TypeScript + JSX (2026-11-13)
+
+**Keputusan:** core tetap JavaScript; layer TUI/UX dipisah ke TypeScript + JSX.
+Core direncanakan migrasi bertahap nanti (Python/shell/TS), tapi TUI duluan karena
+paling sering berubah dan paling butuh type safety (props/state React).
+
+`tsx`/esbuild terverifikasi jalan di dua lingkungan: Termux ARM64 (Node 26) dan
+server Linux x64 (Node 22). Jadi **tidak ada build step ke `dist/`** — file `.tsx`
+dijalankan langsung lewat loader tsx.
+
+### Struktur
+- `src/renderer/SquadView.tsx` — komponen Ink pakai JSX (mengganti `src/ink-squad-ui.js`
+  yang sebelumnya pakai `React.createElement` manual karena JSX butuh transform).
+- `src/renderer/types.ts` — `SquadState`, `SquadAgent`, `AgentStatus`.
+- `tsconfig.json` — `strict`, `noEmit`, `jsx: react-jsx`, `module/moduleResolution: NodeNext`,
+  `allowImportingTsExtensions`. `include` HANYA `src/renderer/**` — typecheck sengaja
+  tidak menyentuh core JS.
+
+### Boundary (penting)
+- TUI = daun. **Core `.js` TIDAK boleh import TUI.**
+- TUI boleh import core.
+- Tujuan: core bisa diganti/dipecah tanpa merusak TUI, dan sebaliknya.
+
+### Entry point & loader (jebakan ESM)
+- ESM me-resolve **static import saat fase linking**, sebelum body module jalan.
+  Karena `src/repl.js` static-import `.tsx`, loader `tsx` WAJIB aktif dari awal proses.
+- `bin/kian` melakukan `import { register } from 'tsx/esm/api'; register();`
+  lalu `await import(index.js)` (dinamis) — bukan static import.
+- `node index.js` langsung **tidak jalan** lagi. Pakai `./bin/kian` atau
+  `npm start` (`node --import tsx index.js`).
+- `bin/tsx-register.mjs` — preload untuk proses yang di-spawn test dengan **cwd di folder
+  temp**: bare specifier `tsx` tidak ke-resolve dari cwd itu, jadi dipakai path absolut
+  ke register module ini.
+
+### Test & tooling
+- `run-suite.sh`: shebang diganti `#!/usr/bin/env bash` (sebelumnya path Termux absolut),
+  dan tiap test dijalankan lewat `node --import tsx`.
+- `tests/test-ink-renderer.mjs`: diubah dari cek **regex source**
+  (`createElement(SquadView, { state ...)`) menjadi cek **perilaku** — spy `rerender`
+  memastikan ia menerima element dengan `props.state === state`. Regex lama rapuh dan
+  otomatis pecah begitu pakai JSX.
+- `tests/test-autoroute-runtime.mjs` & `tests/test-task-resume-integration.mjs`:
+  spawn proses dengan `--import <abs bin/tsx-register.mjs>`.
+
+### Verifikasi (2026-11-13, server lightvela)
+- `npx tsc --noEmit` → exit 0.
+- `bash run-suite.sh` → **1391 pass, 0 fail, 93 file**.
+- Render TUI di PTY (`script -qec`) → panel tampil benar (border, task, wave/evidence,
+  ikon status ✓ ⟳ ✗).
+
+### Catatan packaging (BELUM dikerjakan)
+- `tsx` saat ini `devDependency`. Kalau CLI di-publish global, `tsx` harus jadi
+  `dependency` biasa atau di-bundle, karena `bin/kian` bergantung pada `tsx/esm/api`.
+- `package.json` sekarang punya scripts: `start`, `typecheck`, `test`.

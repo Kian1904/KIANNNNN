@@ -39,7 +39,7 @@ function check(label, cond, extra = '') {
  *  jadi kalau semua input dikirim sekaligus cuma baris pertama yang diproses. */
 async function runREPL(lines, { settleMs = 3000, timeoutMs = 30000, waitFor = [] } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['index.js'], {
+    const child = spawn(process.execPath, ['--import', "/home/agentuser/agent-dev/KIANNNNN/bin/tsx-register.mjs", 'index.js'], {
       cwd: ROOT,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, K_NO_COLOR: '1' },
@@ -119,7 +119,7 @@ console.log('\n[3] REGRESI BUG: auto-route nyuntik /squad tanpa crash');
   fs.writeFileSync(SETTINGS, JSON.stringify([{ name: 'mock', baseUrl: `http://127.0.0.1:${mockSrv.address().port}/v1`, apiKey: 'x', model: 'm', active: true }]));
 
   const isolated = makeIsolatedEnv();
-  const child = spawn(process.execPath, ['index.js'], {
+  const child = spawn(process.execPath, ['--import', "/home/agentuser/agent-dev/KIANNNNN/bin/tsx-register.mjs", 'index.js'], {
     cwd: ROOT,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...isolated.env, K_AUTOROUTE: '1' },
@@ -154,7 +154,7 @@ console.log('\n[3] REGRESI BUG: auto-route nyuntik /squad tanpa crash');
 
 console.log('\n[4] Task simpel TIDAK dirouting ke squad walau autoRoute on');
 {
-  const child = spawn(process.execPath, ['index.js'], {
+  const child = spawn(process.execPath, ['--import', "/home/agentuser/agent-dev/KIANNNNN/bin/tsx-register.mjs", 'index.js'], {
     cwd: ROOT,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, K_AUTOROUTE: '1', K_NO_COLOR: '1' },

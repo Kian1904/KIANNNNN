@@ -1,7 +1,8 @@
 // M46 RED: kontrak renderer Ink — rerender harus bungkus state jadi props.
-// Ini regresi nyata: dulu rerender(state) mentah → React error
+// Regresi nyata: dulu rerender(state) mentah → React error
 // "Objects are not valid as a React child" dan panel ilang.
-import { SquadView, startInkSquadUi } from '../src/ink-squad-ui.js';
+// Versi TSX: perilaku diuji langsung lewat spy, bukan regex source yang rapuh.
+import { SquadView, startInkSquadUi } from '../src/renderer/SquadView.tsx';
 let pass = 0, fail = 0;
 const check = (l, c) => c ? (pass++, console.log(`  PASS ${l}`)) : (fail++, console.log(`  FAIL ${l}`));
 
@@ -22,23 +23,24 @@ check('SquadView itu function component', typeof SquadView === 'function');
   check('SquadView gak throw tanpa state', Boolean(SquadView({ state: undefined })));
 }
 {
-  // startInkSquadUi harus balikin kontrak { rerender, unmount } yang stabil.
   const fake = { rerender() {}, unmount() {}, waitUntilExit() {} };
   const api = startInkSquadUi(state, { _renderImpl: () => fake });
   check('api punya rerender', typeof api.rerender === 'function');
   check('api punya unmount', typeof api.unmount === 'function');
-  let called = false;
   api.rerender(state);
   check('rerender gak throw dengan state valid', true);
   api.unmount();
   check('unmount gak throw', true);
 }
-
-// Deteksi pola bug: rerender(state) harus dibungkus, bukan diteruskan mentah.
 {
-  const src = await import('node:fs').then(m => m.readFileSync(new URL('../src/ink-squad-ui.js', import.meta.url), 'utf8'));
-  check('rerender membungkus props state', /rerender[\s\S]{0,120}createElement\(SquadView,\s*\{\s*state/.test(src));
-  check('tidak meneruskan state mentah ke rerender', !/\.rerender\(\s*nextState\s*\)\s*;/.test(src));
+  let received = null;
+  const fake = { rerender(el) { received = el; }, unmount() {}, waitUntilExit() {} };
+  const api = startInkSquadUi(state, { _renderImpl: () => fake });
+  const next = { ...state, currentWave: 5 };
+  api.rerender(next);
+  const wrapped = received && received.props && received.props.state === next;
+  check('rerender membungkus state jadi props {state}', Boolean(wrapped));
+  check('tidak meneruskan state mentah', received !== next);
 }
 
 console.log(`\n=== HASIL INK-RENDERER: ${pass} pass, ${fail} fail ===`);

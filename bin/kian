@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
-// Global executable untuk KIANNNNN CLI
-// Letakkan di /data/data/com.termux/files/usr/bin/ agar bisa diakses dari mana saja
-import { fileURLToPath } from 'node:url';
+// Global executable untuk KIANNNNN CLI.
+// Layer TUI memakai TypeScript + JSX, jadi loader tsx WAJIB aktif SEBELUM
+// index.js di-import — ESM me-resolve static import saat fase linking, bukan
+// saat body module jalan. Karena itu index.js di-import secara dinamis.
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { register } from 'tsx/esm/api';
 
-// Path relatif ke lokasi file bin/kian ini sendiri (bukan hardcode absolute path
-// device tertentu), jadi tetep jalan walau folder project di-rename/dipindah.
+register();
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-await import(path.join(__dirname, '..', 'index.js'));
+await import(pathToFileURL(path.join(__dirname, '..', 'index.js')).href);
