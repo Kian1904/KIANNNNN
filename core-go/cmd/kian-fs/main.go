@@ -17,14 +17,17 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Kian1904/KIANNNNN/core-go/internal/diffutil"
 	"github.com/Kian1904/KIANNNNN/core-go/internal/fsutil"
 )
 
 type request struct {
-	Op     string `json:"op"`
-	Target string `json:"target"`
-	Offset int    `json:"offset"`
-	Limit  int    `json:"limit"`
+	Op         string `json:"op"`
+	Target     string `json:"target"`
+	Offset     int    `json:"offset"`
+	Limit      int    `json:"limit"`
+	OldContent string `json:"oldContent"`
+	NewContent string `json:"newContent"`
 }
 
 func main() {
@@ -62,6 +65,8 @@ func main() {
 		case "loadAgentMd":
 			content, found := ws.LoadAgentMd()
 			writeJSON(out, map[string]any{"ok": true, "result": content, "found": found})
+		case "diff":
+			writeJSON(out, map[string]any{"ok": true, "result": diffutil.ShowDiff(req.OldContent, req.NewContent)})
 		default:
 			writeJSON(out, map[string]any{"ok": false, "error": "unknown_op: " + req.Op})
 		}

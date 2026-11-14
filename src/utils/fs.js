@@ -1,15 +1,14 @@
 // lib/utils/fs.js - File system utilities
 //
 // Sejak M48: operasi inti didelegasikan ke binary Go (`core-go/cmd/kian-fs`)
-// lewat protokol JSON-line di stdio. Kalau binary tidak ada / gagal start,
-// otomatis fallback ke implementasi JS di bawah — jadi CLI tetap jalan tanpa
-// Go terinstall (mis. user yang cuma `npm i -g`).
+// lewat bridge persistent (src/core/go-bridge.js). Kalau binary tidak ada /
+// gagal start, otomatis fallback ke implementasi JS di bawah — jadi CLI tetap
+// jalan tanpa Go terinstall (mis. user yang cuma `npm i -g`).
 
 import fs from 'fs';
 import path from 'path';
-import { spawn } from 'child_process';
-import { fileURLToPath } from 'url';
 import { getWorkspaceRoot, resolveWorkspacePath } from '../core/workspace.js';
+import { callGo, goAvailable, goBridgeStatus as _goStatus } from '../core/go-bridge.js';
 
 const getAllowRoot = () => getWorkspaceRoot();
 
@@ -20,56 +19,6 @@ const BLOCKED_NAMES = new Set([
 ]);
 
 const BLOCKED_SEGMENTS = ['.git'];
-
-// ── Bridge Go ────────────────────────────────────────────────────────────────
-// Binary dicari relatif ke file ini: <repo>/core-go/bin/kian-fs
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const GO_BIN = path.resolve(__dirname, '..', '..', 'core-go', 'bin', 'kian-fs');
-
-let goAvailable = null; // null = belum dicek, true/false = hasil cek
-
-function goReady() {
-  if (goAvailable !== null) return goAvailable;
-  try {
-    fs.accessSync(GO_BIN, fs.constants.X_OK);
-    goAvailable = true;
-  } catch {
-    goAvailable = false;
-  }
-  return goAvailable;
-}
-
-/**
- * Kirim satu request ke binary Go, balikin hasilnya.
- * @param {object} req
- * @returns {Promise<any>}
- */
-function callGo(req) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(GO_BIN, [], {
-      env: { ...process.env, KIAN_WORKSPACE: getAllowRoot() },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    let out = '';
-    let err = '';
-    child.stdout.on('data', (d) => { out += d; });
-    child.stderr.on('data', (d) => { err += d; });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code !== 0) return reject(new Error(err || `kian-fs exit ${code}`));
-      const line = out.split('\n').find((l) => l.trim());
-      if (!line) return reject(new Error('kian-fs: output kosong'));
-      try {
-        const parsed = JSON.parse(line);
-        if (!parsed.ok) return reject(new Error(parsed.error || 'kian-fs error'));
-        resolve(parsed.result);
-      } catch (e) {
-        reject(new Error(`kian-fs: JSON invalid — ${e.message}`));
-      }
-    });
-    child.stdin.end(JSON.stringify(req) + '\n');
-  });
-}
 
 // ── Implementasi JS (fallback) ───────────────────────────────────────────────
 
@@ -220,56 +169,47 @@ export function loadAgentMd() {
 // ── Versi async (delegasi ke Go kalau tersedia) ──────────────────────────────
 
 /**
- * Versi async dari readFileRange. Pakai Go kalau binary tersedia.
+ * Versi async dari readFileRange. Pakai Go kalau bridge tersedia.
  * @param {string|null} target
  * @param {number} offset
  * @param {number} limit
  * @returns {Promise<object>}
  */
 export async function readFileRangeAsync(target, offset = 1, limit = 400) {
-  if (goReady()) {
-    try {
-      return await callGo({ op: 'readFileRange', target, offset, limit });
-    } catch {
-      // fallback ke JS
-    }
+  if (goAvailable()) {
+    const res = await callGo({ op: 'readFileRange', target, offset, limit });
+    if (res.ok) return res.result;
   }
   return readFileRange(target, offset, limit);
 }
 
 /**
- * Versi async dari listDirSafe. Pakai Go kalau binary tersedia.
+ * Versi async dari listDirSafe. Pakai Go kalau bridge tersedia.
  * @param {string|null} target
  * @returns {Promise<string>}
  */
 export async function listDirSafeAsync(target) {
-  if (goReady()) {
-    try {
-      return await callGo({ op: 'listDirSafe', target });
-    } catch {
-      // fallback ke JS
-    }
+  if (goAvailable()) {
+    const res = await callGo({ op: 'listDirSafe', target });
+    if (res.ok) return res.result;
   }
   return listDirSafe(target);
 }
 
 /**
- * Versi async dari readFileSafe. Pakai Go kalau binary tersedia.
+ * Versi async dari readFileSafe. Pakai Go kalau bridge tersedia.
  * @param {string|null} target
  * @returns {Promise<string>}
  */
 export async function readFileSafeAsync(target) {
-  if (goReady()) {
-    try {
-      return await callGo({ op: 'readFileSafe', target });
-    } catch {
-      // fallback ke JS
-    }
+  if (goAvailable()) {
+    const res = await callGo({ op: 'readFileSafe', target });
+    if (res.ok) return res.result;
   }
   return readFileSafe(target);
 }
 
 /** Status bridge Go — buat diagnosa / test. */
 export function goBridgeStatus() {
-  return { available: goReady(), bin: GO_BIN };
+  return _goStatus();
 }

@@ -1787,3 +1787,41 @@ JS `Math.max(1, Math.min(Number(-10) || 400, 5000))` = **1** (bukan 400), karena
 - `tsc --noEmit` → exit 0.
 
 **Catatan:** `core-go/bin/` masuk `.gitignore` (binary di-build lokal, bukan di-commit).
+
+## M49 — Migrasi core ke Go: modul kedua (`diffutil`) + bridge persistent (2026-11-14)
+
+**Modul kedua:** `src/diff.js` → `core-go/internal/diffutil` (Myers O(ND) + hunk context 3).
+Port 1:1, diverifikasi oracle `tests/test-go-diff.mjs` (15 kasus, semua identik).
+
+**Bridge di-upgrade jadi PERSISTENT** (`src/core/go-bridge.js`):
+- Sebelumnya: spawn proses per-request → overhead **~22ms** di Termux (lebih mahal
+  dari kerjaannya sendiri). Diff 2500 baris: 45ms (Go) vs 15ms (JS) → Go KALAH.
+- Sekarang: satu proses Go hidup, bicara JSON-line. Overhead spawn hilang.
+- **Ref/unref dinamis:** saat ada request pending, proses `ref()` (tahan event loop
+  supaya Node tidak exit sebelum promise selesai); saat idle, `unref()` (biar `node`
+  keluar bersih). Ini wajib — `unref()` statis bikin "unsettled top-level await".
+
+**FINDING jujur soal performa (jangan overclaim):**
+Benchmark diff di Termux (10 iterasi, konten realistis):
+
+| Ukuran | JS | Go (persistent) | Rasio |
+|---|---|---|---|
+| 500 baris | 1.7ms | 3.7ms | 0.46x (Go kalah) |
+| 2500 baris | 14.4ms | 12.2ms | 1.19x (Go menang tipis) |
+| 5000 baris | 13.4ms | 31.9ms | 0.42x (Go kalah) |
+
+**Kesimpulan:** Go TIDAK otomatis lebih cepat. Biaya **JSON serialisasi konten besar**
+(5000 baris ≈ 200KB) bisa melebihi penghematan algoritma. Go menang hanya di rentang
+menengah. **Keputusan:** bridge tetap ada (arsitektur siap), tapi `showDiffAsync`
+BELUM dipakai di jalur panas — `showDiff` (JS) masih default. Migrasi ke Go
+dipertimbangkan ulang per-modul berdasarkan **pengukuran**, bukan asumsi.
+
+**Pelajaran arsitektural:** boundary lintas-bahasa punya biaya nyata (spawn + serialisasi).
+Modul yang cocok di-port: yang **CPU-bound dengan payload kecil** (mis. parsing, hashing,
+indexing). Modul dengan **payload besar** (teks file penuh) lebih baik tetap di JS.
+
+**Verifikasi (2026-11-14, Termux):**
+- `go test ./...` → ok (fsutil + diffutil).
+- `tests/test-go-bridge.mjs` → 10 pass. `tests/test-go-diff.mjs` → 15 pass.
+- `bash run-suite.sh` → **1422 pass, 0 fail, 96 file**.
+- `tsc --noEmit` → exit 0.
