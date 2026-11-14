@@ -76,7 +76,16 @@ export async function runTask(instruction, agentMd, availableTools, threadId, st
   let taskState = null;
   const contractResults = new Map();
   let lastTarget = null;
-  const recentMemory = getRecentDecisions(5);
+  // M54: ambil memory RELEVAN (bukan cuma 5 terbaru). Fallback ke getRecentDecisions
+  // kalau retrieval gagal (mis. DB kosong / error) — perilaku lama tetap aman.
+  let recentMemory = getRecentDecisions(5);
+  try {
+    const { retrieveRelevant } = await import('./memory-retrieval.js');
+    const mem = await retrieveRelevant(instruction, { limit: 5 });
+    if (mem.decisions.length > 0) recentMemory = mem.decisions;
+  } catch {
+    // biarkan pakai getRecentDecisions
+  }
   let webSearchCount = 0;
 
   // --- Konfigurasi agent (null = generic, perilaku lama persis) ---

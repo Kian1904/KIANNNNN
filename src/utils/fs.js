@@ -1,8 +1,14 @@
 // lib/utils/fs.js - File system utilities
+//
+// Sejak M48: operasi inti didelegasikan ke binary Go (`core-go/cmd/kian-fs`)
+// lewat bridge persistent (src/core/go-bridge.js). Kalau binary tidak ada /
+// gagal start, otomatis fallback ke implementasi JS di bawah — jadi CLI tetap
+// jalan tanpa Go terinstall (mis. user yang cuma `npm i -g`).
 
 import fs from 'fs';
 import path from 'path';
 import { getWorkspaceRoot, resolveWorkspacePath } from '../core/workspace.js';
+import { callGo, goAvailable, goBridgeStatus as _goStatus } from '../core/go-bridge.js';
 
 const getAllowRoot = () => getWorkspaceRoot();
 
@@ -13,6 +19,8 @@ const BLOCKED_NAMES = new Set([
 ]);
 
 const BLOCKED_SEGMENTS = ['.git'];
+
+// ── Implementasi JS (fallback) ───────────────────────────────────────────────
 
 /**
  * Cek apakah target aman untuk diakses.
@@ -156,4 +164,52 @@ export function loadAgentMd() {
   const pathMd = resolveWorkspacePath('AGENT.md');
   if (!fs.existsSync(pathMd)) return null;
   return fs.readFileSync(pathMd, 'utf8');
+}
+
+// ── Versi async (delegasi ke Go kalau tersedia) ──────────────────────────────
+
+/**
+ * Versi async dari readFileRange. Pakai Go kalau bridge tersedia.
+ * @param {string|null} target
+ * @param {number} offset
+ * @param {number} limit
+ * @returns {Promise<object>}
+ */
+export async function readFileRangeAsync(target, offset = 1, limit = 400) {
+  if (goAvailable()) {
+    const res = await callGo({ op: 'readFileRange', target, offset, limit });
+    if (res.ok) return res.result;
+  }
+  return readFileRange(target, offset, limit);
+}
+
+/**
+ * Versi async dari listDirSafe. Pakai Go kalau bridge tersedia.
+ * @param {string|null} target
+ * @returns {Promise<string>}
+ */
+export async function listDirSafeAsync(target) {
+  if (goAvailable()) {
+    const res = await callGo({ op: 'listDirSafe', target });
+    if (res.ok) return res.result;
+  }
+  return listDirSafe(target);
+}
+
+/**
+ * Versi async dari readFileSafe. Pakai Go kalau bridge tersedia.
+ * @param {string|null} target
+ * @returns {Promise<string>}
+ */
+export async function readFileSafeAsync(target) {
+  if (goAvailable()) {
+    const res = await callGo({ op: 'readFileSafe', target });
+    if (res.ok) return res.result;
+  }
+  return readFileSafe(target);
+}
+
+/** Status bridge Go — buat diagnosa / test. */
+export function goBridgeStatus() {
+  return _goStatus();
 }

@@ -1,4 +1,12 @@
 // lib/package-safety.js — cek keamanan package sebelum install
+//
+// Sejak M51: algoritma Levenshtein + pencarian tetangga terdekat punya versi
+// async yang delegasi ke binary Go (core-go/cmd/kian-fs). Network I/O (fetch
+// registry, apt-cache) TETAP di JS — JS unggul di async I/O.
+//
+// Written by K'
+
+import { callGo, goAvailable, goBridgeStatus as _goStatus } from './core/go-bridge.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:safety]', ...args); };
@@ -188,4 +196,49 @@ export async function checkPackageSafety(command) {
   if (manager === 'npm') return await checkNpm(name);
   if (manager === 'pkg') return await checkPkg(name);
   return null;
+}
+
+// ── Versi async (delegasi ke Go kalau tersedia) ──────────────────────────────
+
+/**
+ * Versi async dari levenshteinDistance. Pakai Go kalau bridge tersedia.
+ * @param {string} a
+ * @param {string} b
+ * @returns {Promise<number>}
+ */
+export async function levenshteinDistanceAsync(a, b) {
+  if (goAvailable()) {
+    const res = await callGo({ op: 'levenshtein', a, b });
+    if (res.ok) return res.result;
+  }
+  return levenshteinDistance(a, b);
+}
+
+/**
+ * Versi async dari pencarian tetangga terdekat. Pakai Go kalau bridge tersedia.
+ * @param {string} name
+ * @param {string[]} candidates
+ * @returns {Promise<{closest: string, distance: number}>}
+ */
+export async function findNearestAsync(name, candidates) {
+  if (goAvailable()) {
+    const res = await callGo({ op: 'findNearest', name, candidates });
+    if (res.ok) return res.result;
+  }
+  // fallback JS
+  let minDist = -1;
+  let closest = '';
+  for (const c of candidates) {
+    const d = levenshteinDistance(name, c);
+    if (minDist === -1 || d < minDist) {
+      minDist = d;
+      closest = c;
+    }
+  }
+  return { closest, distance: minDist };
+}
+
+/** Status bridge Go — buat diagnosa / test. */
+export function goBridgeStatus() {
+  return _goStatus();
 }

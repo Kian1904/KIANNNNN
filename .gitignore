@@ -15,3 +15,6 @@ gha-creds-*.json
 
 # temp env hasil test (dibikin tiap run suite, jangan sampai ke-commit)
 .tmp-env-*/
+
+# Go build output (binary di-build lokal via ./build-go.sh)
+core-go/bin/

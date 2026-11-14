@@ -1694,3 +1694,447 @@ Validasi instalasi. `src/install-check.js`:
 ```text
 full suite : 1258 pass, 0 fail | 68 file
 ```
+
+## M47 — Layer TUI pindah ke TypeScript + JSX (2026-11-13)
+
+**Keputusan:** core tetap JavaScript; layer TUI/UX dipisah ke TypeScript + JSX.
+Core direncanakan migrasi bertahap nanti (Python/shell/TS), tapi TUI duluan karena
+paling sering berubah dan paling butuh type safety (props/state React).
+
+`tsx`/esbuild terverifikasi jalan di dua lingkungan: Termux ARM64 (Node 26) dan
+server Linux x64 (Node 22). Jadi **tidak ada build step ke `dist/`** — file `.tsx`
+dijalankan langsung lewat loader tsx.
+
+### Struktur
+- `src/renderer/SquadView.tsx` — komponen Ink pakai JSX (mengganti `src/ink-squad-ui.js`
+  yang sebelumnya pakai `React.createElement` manual karena JSX butuh transform).
+- `src/renderer/types.ts` — `SquadState`, `SquadAgent`, `AgentStatus`.
+- `tsconfig.json` — `strict`, `noEmit`, `jsx: react-jsx`, `module/moduleResolution: NodeNext`,
+  `allowImportingTsExtensions`. `include` HANYA `src/renderer/**` — typecheck sengaja
+  tidak menyentuh core JS.
+
+### Boundary (penting)
+- TUI = daun. **Core `.js` TIDAK boleh import TUI.**
+- TUI boleh import core.
+- Tujuan: core bisa diganti/dipecah tanpa merusak TUI, dan sebaliknya.
+
+### Entry point & loader (jebakan ESM)
+- ESM me-resolve **static import saat fase linking**, sebelum body module jalan.
+  Karena `src/repl.js` static-import `.tsx`, loader `tsx` WAJIB aktif dari awal proses.
+- `bin/kian` melakukan `import { register } from 'tsx/esm/api'; register();`
+  lalu `await import(index.js)` (dinamis) — bukan static import.
+- `node index.js` langsung **tidak jalan** lagi. Pakai `./bin/kian` atau
+  `npm start` (`node --import tsx index.js`).
+- `bin/tsx-register.mjs` — preload untuk proses yang di-spawn test dengan **cwd di folder
+  temp**: bare specifier `tsx` tidak ke-resolve dari cwd itu, jadi dipakai path absolut
+  ke register module ini.
+
+### Test & tooling
+- `run-suite.sh`: shebang diganti `#!/usr/bin/env bash` (sebelumnya path Termux absolut),
+  dan tiap test dijalankan lewat `node --import tsx`.
+- `tests/test-ink-renderer.mjs`: diubah dari cek **regex source**
+  (`createElement(SquadView, { state ...)`) menjadi cek **perilaku** — spy `rerender`
+  memastikan ia menerima element dengan `props.state === state`. Regex lama rapuh dan
+  otomatis pecah begitu pakai JSX.
+- `tests/test-autoroute-runtime.mjs` & `tests/test-task-resume-integration.mjs`:
+  spawn proses dengan `--import <abs bin/tsx-register.mjs>`.
+
+### Verifikasi (2026-11-13, server lightvela)
+- `npx tsc --noEmit` → exit 0.
+- `bash run-suite.sh` → **1391 pass, 0 fail, 93 file**.
+- Render TUI di PTY (`script -qec`) → panel tampil benar (border, task, wave/evidence,
+  ikon status ✓ ⟳ ✗).
+
+### Catatan packaging (BELUM dikerjakan)
+- `tsx` saat ini `devDependency`. Kalau CLI di-publish global, `tsx` harus jadi
+  `dependency` biasa atau di-bundle, karena `bin/kian` bergantung pada `tsx/esm/api`.
+- `package.json` sekarang punya scripts: `start`, `typecheck`, `test`.
+
+## M48 — Migrasi core ke Go: modul pertama (`fsutil`) (2026-11-14)
+
+**Keputusan:** core mulai dimigrasi dari JavaScript ke **Go**, bertahap, satu modul
+per commit. Modul pertama: `src/utils/fs.js` → `core-go/internal/fsutil`.
+
+**Kenapa Go (hasil eval 16 bahasa di Termux, 2026-11-14):**
+- Warm build **2.8s**, RAM runtime **1.9 MB** (vs Node 41 MB), cross-compile 5 target
+  dalam **5.4s** dari HP.
+- Rust gugur: cold build 3m21s + `user CPU 12m25s` (HP panas), cross-compile ribet.
+- Zig gugur: tidak ada incremental cache (tiap build 33s).
+- Bun rusak di Termux (`libicui18n.so.79` tidak ada, Termux punya 78.3).
+- OCaml native compile rusak (`libasmrun.a` tidak ada di paket Termux).
+
+**Arsitektur integrasi (bertahap, bukan pisah total):**
+- Go binary `core-go/bin/kian-fs` bicara **JSON-line via stdio**.
+- `src/utils/fs.js` mengekspor versi **async** (`readFileRangeAsync`, `listDirSafeAsync`,
+  `readFileSafeAsync`) yang delegasi ke Go kalau binary ada.
+- **Fallback JS tetap ada** — kalau binary tidak ada (user cuma `npm i -g`), CLI tetap
+  jalan pakai implementasi JS. Jadi Go **opsional**, bukan hard dependency.
+- Build: `./build-go.sh` (skip kalau `go` tidak ada). Cross-compile: `GOOS=... GOARCH=... ./build-go.sh`
+  dengan `CGO_ENABLED=0` (wajib dari Termux — gcc-nya cuma ARM).
+
+**Boundary:** core `.js` boleh panggil Go; Go **tidak** tahu apa-apa soal JS/TUI.
+Kontrak satu-satunya: JSON-line di stdio.
+
+**Oracle test:** `tests/test-go-bridge.mjs` membandingkan hasil JS vs Go untuk kasus
+yang sama — harus **identik**. Ini yang menangkap 1 bug port: clamp `limit` negatif.
+JS `Math.max(1, Math.min(Number(-10) || 400, 5000))` = **1** (bukan 400), karena
+`Number(-10)` truthy. Go versi awal salah clamp ke 400 → ketahuan test, diperbaiki.
+
+**Verifikasi (2026-11-14, Termux):**
+- `go test ./...` → ok.
+- `node --import tsx tests/test-go-bridge.mjs` → 10 pass, 0 fail.
+- `bash run-suite.sh` → **1407 pass, 0 fail, 95 file**.
+- `tsc --noEmit` → exit 0.
+
+**Catatan:** `core-go/bin/` masuk `.gitignore` (binary di-build lokal, bukan di-commit).
+
+## M49 — Migrasi core ke Go: modul kedua (`diffutil`) + bridge persistent (2026-11-14)
+
+**Modul kedua:** `src/diff.js` → `core-go/internal/diffutil` (Myers O(ND) + hunk context 3).
+Port 1:1, diverifikasi oracle `tests/test-go-diff.mjs` (15 kasus, semua identik).
+
+**Bridge di-upgrade jadi PERSISTENT** (`src/core/go-bridge.js`):
+- Sebelumnya: spawn proses per-request → overhead **~22ms** di Termux (lebih mahal
+  dari kerjaannya sendiri). Diff 2500 baris: 45ms (Go) vs 15ms (JS) → Go KALAH.
+- Sekarang: satu proses Go hidup, bicara JSON-line. Overhead spawn hilang.
+- **Ref/unref dinamis:** saat ada request pending, proses `ref()` (tahan event loop
+  supaya Node tidak exit sebelum promise selesai); saat idle, `unref()` (biar `node`
+  keluar bersih). Ini wajib — `unref()` statis bikin "unsettled top-level await".
+
+**FINDING jujur soal performa (jangan overclaim):**
+Benchmark diff di Termux (10 iterasi, konten realistis):
+
+| Ukuran | JS | Go (persistent) | Rasio |
+|---|---|---|---|
+| 500 baris | 1.7ms | 3.7ms | 0.46x (Go kalah) |
+| 2500 baris | 14.4ms | 12.2ms | 1.19x (Go menang tipis) |
+| 5000 baris | 13.4ms | 31.9ms | 0.42x (Go kalah) |
+
+**Kesimpulan:** Go TIDAK otomatis lebih cepat. Biaya **JSON serialisasi konten besar**
+(5000 baris ≈ 200KB) bisa melebihi penghematan algoritma. Go menang hanya di rentang
+menengah. **Keputusan:** bridge tetap ada (arsitektur siap), tapi `showDiffAsync`
+BELUM dipakai di jalur panas — `showDiff` (JS) masih default. Migrasi ke Go
+dipertimbangkan ulang per-modul berdasarkan **pengukuran**, bukan asumsi.
+
+**Pelajaran arsitektural:** boundary lintas-bahasa punya biaya nyata (spawn + serialisasi).
+Modul yang cocok di-port: yang **CPU-bound dengan payload kecil** (mis. parsing, hashing,
+indexing). Modul dengan **payload besar** (teks file penuh) lebih baik tetap di JS.
+
+**Verifikasi (2026-11-14, Termux):**
+- `go test ./...` → ok (fsutil + diffutil).
+- `tests/test-go-bridge.mjs` → 10 pass. `tests/test-go-diff.mjs` → 15 pass.
+- `bash run-suite.sh` → **1422 pass, 0 fail, 96 file**.
+- `tsc --noEmit` → exit 0.
+
+## M50 — Modul ketiga (`shieldutil`) + FINDING: JS regex sudah sangat cepat (2026-11-14)
+
+**Modul ketiga:** `src/prompt-shield.js` → `core-go/internal/shieldutil`.
+Port 1:1 (10 pola regex + sanitize + wrap). Oracle `tests/test-go-shield.mjs`:
+**128 kasus, semua identik** — regex JS (V8) dan Go (RE2) ternyata kompatibel
+untuk pola-pola ini.
+
+**FINDING PENTING — prediksi gue SALAH, dan ini kenapa pengukuran wajib:**
+Gue kira regex matching itu CPU-bound yang cocok di Go. Ternyata:
+
+| Operasi | JS | Go (persistent) | Rasio |
+|---|---|---|---|
+| scan 10 regex, teks 6KB | **0.135ms** | 8.012ms | **0.02x** (Go 60× lebih lambat) |
+
+**Penyebab:** V8 regex engine sudah sangat teroptimasi, dan payload-nya kecil
+(6KB) — jadi overhead JSON + IPC bridge **mendominasi** total waktu. Go tidak
+punya kesempatan menang di sini.
+
+**Keputusan:** `scanForInjectionAsync` dkk **TIDAK dipakai di jalur panas**.
+`scanForInjection` (JS) tetap default. Port Go dipertahankan sebagai
+**referensi + oracle** (memverifikasi perilaku JS), bukan untuk kecepatan.
+
+**Aturan yang makin kuat (revisi M49):**
+> Port ke Go HANYA kalau: (1) CPU-bound **berat** (bukan sekadar "ada regex"),
+> (2) payload kecil, (3) **sudah diukur** lebih cepat. Regex matching TIDAK
+> memenuhi syarat — V8 sudah cukup cepat.
+
+**Modul yang kemungkinan besar TIDAK worth di-port:** apa pun yang cuma
+"regex + string manipulation" di payload kecil. V8 unggul di situ.
+
+**Verifikasi (2026-11-14, Termux):**
+- `go test ./...` → ok (fsutil + diffutil + shieldutil).
+- `tests/test-go-shield.mjs` → 128 pass, 0 fail.
+- `bash run-suite.sh` → **1550 pass, 0 fail, 97 file**.
+- `tsc --noEmit` → exit 0.
+
+## M51 — Modul keempat (`safetyutil`) + pola titik impas (2026-11-14)
+
+**Modul keempat:** bagian CPU-bound `src/package-safety.js` → `core-go/internal/safetyutil`
+(Levenshtein + pencarian tetangga terdekat). Network I/O (fetch registry, apt-cache)
+**tetap di JS** — JS unggul di async I/O. Oracle `tests/test-go-safety.mjs`: 23 kasus identik.
+
+**FINDING — titik impas terukur:**
+| Skala | JS | Go | Rasio |
+|---|---|---|---|
+| 57 nama package (kasus nyata) | **0.515ms** | 1.456ms | **0.35x** (Go kalah 3×) |
+| 5000 kandidat (skala besar) | 100.8ms | **93.8ms** | **1.08x** (Go menang tipis) |
+
+**Kesimpulan:** Levenshtein di skala nyata (57 nama) → Go kalah. Di skala besar → Go
+menang tipis. **Tidak worth** untuk kasus pemakaian sekarang. Port dipertahankan
+sebagai referensi + oracle.
+
+**POLA YANG MULAI JELAS (setelah 4 modul):**
+> Bridge JS↔Go punya **biaya tetap** (JSON + IPC ≈ 1-8ms per panggilan). Go baru
+> menang kalau kerjaannya **jauh lebih besar** dari biaya itu. Untuk operasi yang
+> selesai dalam <1ms di JS, Go hampir selalu kalah.
+
+**Kandidat yang BENERAN cocok (belum ditemukan di repo ini):**
+- Operasi yang butuh **>10ms** di JS (parsing besar, indexing, kompilasi, kriptografi berat)
+- Payload kecil (biar JSON tidak mendominasi)
+- Contoh hipotetis: index codebase 10k file, hash tree besar, parse AST besar
+
+**Verifikasi (2026-11-14, Termux):**
+- `go test ./...` → ok (fsutil + diffutil + shieldutil + safetyutil).
+- `tests/test-go-safety.mjs` → 23 pass, 0 fail.
+- `bash run-suite.sh` → **1573 pass, 0 fail, 98 file**.
+- `tsc --noEmit` → exit 0.
+
+## M52 — Modul kelima (`indexutil`) + FINDING: Go regex lebih lambat dari V8 (2026-11-14)
+
+**Modul kelima:** `src/indexer.js` (BARU) → `core-go/internal/indexutil`.
+Index simbol codebase (fungsi, class, export, import). Oracle
+`tests/test-go-index.mjs`: **679 simbol identik** di 97 file.
+
+**FINDING BESAR — Go regex (RE2) LEBIH LAMBAT dari V8 regex:**
+| Operasi | JS | Go | Rasio |
+|---|---|---|---|
+| BuildIndex 95 file (murni, tanpa IPC) | **37ms** | 86.6ms | **0.43x** (Go 2.3× lebih lambat) |
+| BuildIndex via bridge (dengan IPC) | 32.4ms | 99.0ms | 0.33x |
+| IPC murni (op ringan) | — | 1.1ms | — |
+
+**Akar masalah:** Go pakai **RE2** (dijamin linear, no backtracking — untuk keamanan),
+V8 pakai **Irregexp** (backtracking, JIT-compiled — untuk kecepatan). Untuk pola
+seperti `^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)`, V8 jauh
+lebih cepat. **Bukan soal IPC** — Go-nya sendiri yang lambat (86ms vs 37ms).
+
+**Implikasi:** setiap modul yang inti kerjanya **regex matching** kemungkinan besar
+akan kalah di Go. Ini memperkuat temuan M50 (shieldutil kalah 60×).
+
+**POLA FINAL (setelah 5 modul):**
+> Go menang kalau: (1) kerjaannya **bukan regex**, (2) CPU-bound berat, (3) payload
+> kecil, (4) **sudah diukur**. Kalau inti kerjanya regex → **tetap di JS** (V8 unggul).
+
+**Kandidat Go yang masih mungkin menang (belum diuji):**
+- Numerik murni (tanpa regex): hashing, checksum, kompresi, kriptografi
+- Parsing manual (bukan regex): tokenizer char-by-char, state machine
+- Sorting/searching data besar
+
+**Verifikasi (2026-11-14, Termux):**
+- `go test ./...` → ok (5 paket).
+- `tests/test-go-index.mjs` → 6 pass (679 simbol identik).
+- `bash run-suite.sh` → **1579 pass, 0 fail, 99 file**.
+- `tsc --noEmit` → exit 0.
+
+## M53 — Uji `hashutil` (SHA-256): SERI di skala kecil, menang 1.47× di skala besar (2026-11-14)
+
+**Eksperimen:** port hashing file (SHA-256) ke Go — kandidat "numerik murni, bukan
+regex" yang diharapkan menang besar. **Hasilnya tidak sesuai harapan:**
+
+| Skala | JS (node:crypto) | Go (via bridge) | Rasio |
+|---|---|---|---|
+| 95 file (codebase KIANNNNN) | 8.508ms | 8.499ms | **1.00×** (SERI) |
+| 1619 file (skala besar) | 155.3ms | **105.8ms** | **1.47×** (Go menang) |
+| Go murni (tanpa IPC), 95 file | — | 3.84ms | — |
+
+**Kenapa seri di skala kecil:** Go murni 3.84ms, tapi overhead IPC ~4.7ms
+menghabiskan keunggulan. Node `crypto` itu **native C++** (bukan JS murni), jadi
+sudah cepat.
+
+**KEPUTUSAN: `hashutil` DI-REVERT** (tidak di-commit). Tidak worth untuk codebase
+95 file. Baru worth kalau index 1000+ file.
+
+**PELAJARAN FINAL (setelah 6 eksperimen):**
+> Node sudah punya **native C++** untuk banyak operasi berat (crypto, zlib, regex).
+> Jadi "Go lebih cepat" hanya berlaku kalau: (1) Node TIDAK punya native equivalent,
+> (2) kerjaannya jauh lebih besar dari overhead IPC (~1-5ms), (3) bukan regex.
+
+**Yang beneran menang di Go (dari 6 eksperimen):** cuma `diffutil` (Myers, algoritma
+murni tanpa native equivalent di Node) — dan itu pun cuma di rentang menengah.
+
+**Rekomendasi akhir:** STOP migrasi core ke Go. Yang worth cuma modul algoritma murni
+spesifik. Sisanya (regex, I/O, crypto, orchestration) tetap di JS.
+
+## M54 — Memory retrieval: ambil memory RELEVAN, bukan cuma "terbaru" (2026-11-14)
+
+**Masalah:** sebelum M54, memory cuma bisa dibaca `getRecentDecisions(5)` — 5
+keputusan TERBARU. Keputusan relevan dari 500 task lalu HILANG. Agent "inget"
+yang terakhir, bukan yang penting. Ini gap terbesar di arsitektur memory.
+
+**Solusi:** `src/memory-retrieval.js` (BARU) + fungsi query baru di `db.js`.
+
+**`db.js` — fungsi baru:**
+- `getAllDecisions()` — semua keputusan (buat scoring)
+- `getAllLearningSummaries()` — semua ringkasan learning (sebelumnya GAK ADA cara baca balik!)
+- `getDecisionsByKey(key)` — exact match, case-insensitive
+- `getDecisionsSince(since)` — filter waktu
+- `getMemoryStats()` — statistik (decisions/learning/conversations/snapshots)
+
+**`memory-retrieval.js` — pendekatan:**
+- **TF-IDF sederhana** + **recency boost** (half-life 30 hari). Tanpa embedding,
+  tanpa dependency — ringan di Termux.
+- `tokenize()` — lowercase, buang stopword (ID + EN)
+- `buildIdf()` / `scoreRelevance()` — scoring cosine-ish
+- `recencyBoost()` — makin baru makin tinggi (0..1)
+- `retrieveRelevant(query, opts)` — ambil top-N memory relevan
+- `formatMemoryContext(result)` — format siap-inject ke prompt
+
+**Wiring:** `run-task.js` sekarang pakai `retrieveRelevant(instruction)` dengan
+**fallback** ke `getRecentDecisions(5)` kalau retrieval gagal — perilaku lama tetap aman.
+
+**Verifikasi (2026-11-14, Termux):**
+- `tests/test-memory-retrieval.mjs` → **29 pass, 0 fail** (db + retrieval + distill bareng).
+- `bash run-suite.sh` → **1608 pass, 0 fail, 100 file**.
+- `tsc --noEmit` → exit 0.
+
+**Catatan:** ini melengkapi komponen ke-12 dari 13 checklist agent (retrieval).
+Sisa: context compaction (`distill.js` masih 28 baris, cuma truncate+summarize).
+
+## M55 — Context compaction: komponen ke-13 (TERAKHIR) dari checklist agent (2026-11-14)
+
+**Masalah:** `buildHistoryText` (plan.js) meng-include **ISI FILE PENUH** tiap langkah
+READ. Di task panjang (100+ langkah), history bisa jadi ratusan KB yang dikirim ULANG
+tiap iterasi — boros token, bisa melewati context window.
+
+**Solusi:** `src/context-compaction.js` (BARU) — kompaksi hierarkis:
+1. **Langkah terbaru** (`keepRecent=8`) → detail penuh
+2. **Langkah lama** → diringkas 1 baris (aksi + target + status)
+3. **Isi file besar** → dipotong (awal 60% + akhir 40%) + placeholder ukuran
+4. **Batas total** (`maxTotal=24000` char ≈ 6k token) → dipaksa, termasuk potong
+   baris ringkasan kalau perlu
+
+**Hasil terukur:** history 50 langkah × 3000 char → **152.830 char → 18.392 char
+(hemat 88%)**.
+
+**Wiring:** `plan.js` sekarang pakai `compactHistory(history).text` di prompt building
+(jalur panas). `buildHistoryText` tetap ada (dipakai pesan error di run-task.js).
+
+**BUG yang ketemu & diperbaiki (regresi):** versi awal meringkas `user_condition`
+jadi `Langkah N: USER_CONDITION` — **teks hint recovery `[RECOVERY: ...]` HILANG**,
+bikin `test-recovery-integration.mjs` gagal (5 pass → 1 fail). Fix: `user_condition`
+dan `note` **tidak diringkas** — teksnya disimpan (potong 300/200 char). Ini contoh
+nyata kenapa test suite penting: regresi ketahuan langsung.
+
+**Verifikasi (2026-11-14, Termux):**
+- `tests/test-context-compaction.mjs` → **26 pass, 0 fail** (bareng memory + distill).
+- `tests/test-recovery-integration.mjs` → 5 pass, 0 fail (regresi diperbaiki).
+- `bash run-suite.sh` → **1634 pass, 0 fail, 101 file**.
+- `tsc --noEmit` → exit 0.
+
+**CHECKLIST AGENT LENGKAP (13/13):** planning, plan-review, task-state, task-journal,
+task-contract, task-budget, evidence, completion-gate, recovery, verifier, persistent
+memory, retrieval (M54), context compaction (M55).
+
+## M56 — 3 bug kritis ketemu saat TEST PEMAKAIAN NYATA (2026-11-14)
+
+Test otomatis (1634 test) **TIDAK nangkep** 3 bug ini. Ketemu waktu jalanin agent
+beneran dengan task multi-langkah + provider nyata (Groq). Pelajaran: test otomatis
++ test pemakaian nyata = dua-duanya perlu.
+
+### BUG 1 (KRITIS) — `systemPromptOverride` MENGGANTI system prompt
+`src/plan.js`: `const systemPrompt = systemPromptOverride || SYSTEM_PROMPT`.
+Kalau ada override (mis. contract block), **SYSTEM_PROMPT — yang berisi DAFTAR
+ACTION VALID — HILANG TOTAL**. Akibatnya model mengarang action sendiri
+(`ACTION: READ_FILE` bukan `read`) → parser gagal → **agent mati total** setiap
+kali ada contract (yang SELALU ada untuk task normal).
+**Fix:** override DIGABUNG (`${base}\n\n${override}`), bukan mengganti.
+
+### BUG 2 — native tool-calling menimpa format teks
+Model baru (`gpt-oss-120b`, `qwen3.8-27b`) punya tool-calling bawaan. Mereka balas
+`<tool_call><function=BASH>...` atau JSON `{"cmd":[...]}`, **bukan** `ACTION: ...`.
+Parser teks gagal total.
+**Fix:** kirim `tool_choice: 'none'` di request (`src/providers.js`).
+
+### BUG 3 — `PROVIDER_NAMES` dievaluasi di top-level
+`src/providers.js`: `export const PROVIDER_NAMES = loadProviders().map(...)`.
+ESM hoisting bisa menjalankan ini SEBELUM `dotenv/config` selesai → `process.env`
+kosong → semua apiKey/model kosong.
+**Fix:** jadikan lazy (`getProviderNames()` + `PROVIDER_NAMES` sebagai Proxy).
+
+### Hasil test pemakaian nyata (SETELAH fix)
+Agent berhasil menyelesaikan task end-to-end:
+```
+Task: "Baca kalkulator.js, lalu tambahkan fungsi kali(a,b)"
+Langkah 1: LIST_DIR .        ✅
+Langkah 2: READ kalkulator.js ✅
+Langkah 3: EDIT (tambah kali) ✅
+Hasil: file kalkulator.js berisi fungsi kali(a,b) yang benar ✅
+```
+
+### Masalah provider (BUKAN bug kode, konfigurasi Kian)
+- Groq `qwen3.8-27b`: rate limit ITPM (boros token).
+- XKIRO: model `qwen3-coder-plus:free` 404 (sudah tidak ada).
+- Gemini: API key kosong.
+
+### Verifikasi
+- `tests/test-regression-m56.mjs` → **14 pass, 0 fail** (regresi 3 bug).
+- `bash run-suite.sh` → **1648 pass, 0 fail, 102 file**.
+- `tsc --noEmit` → exit 0.
+
+## M57 — Bersihkan provider cascade: sisakan yang terverifikasi jalan (2026-11-14)
+
+**Hasil tes semua provider (2026-11-14):**
+
+| Provider | Status | Keterangan |
+|---|---|---|
+| xkiro | ✅ OK | `mistralai/mistral-large-2512` |
+| nvidia | ✅ OK | `poolside/laguna-xs-2.1` |
+| groq | ✅ OK | `qwen/qwen3.8-27b` |
+| xkiro-coder | ❌ 404 | model `qwen/qwen3-coder-plus:free` sudah tidak ada |
+| gemini | ❌ | API key kosong |
+| openrouter | ❌ 401 | "User not found" |
+| mistral | ❌ 429 | rate limit |
+
+**Keputusan:** `DEFAULT_PROVIDERS` dipangkas dari 7 → **3** (xkiro, nvidia, groq).
+Cascade sekarang: **xkiro → nvidia → groq**.
+
+**Catatan:** xkiro punya 69 model (Claude Opus 4.8, Sonnet 5.5, Grok 4.7, dll) tapi
+sebagian 403 (tidak ada akses). Yang bisa dipakai: `mistralai/mistral-large-2512`,
+`mistralai/codestral-2508`.
+
+**Hasil test agent end-to-end (SETELAH bersih):**
+```
+Task: "Baca kalkulator.js, lalu tambahkan fungsi kali(a,b)"
+Langkah 1: LIST_DIR .         ✅ XKIRO
+Langkah 2: READ kalkulator.js ✅ XKIRO
+Langkah 3: EDIT kalkulator.js ✅ XKIRO
+Langkah 4: READ (verifikasi)  ✅ XKIRO
+Langkah 5: DONE               ✅
+TANPA FALLBACK — XKIRO jalan dari awal sampai selesai.
+Agent memverifikasi sendiri hasilnya (baca ulang file).
+```
+
+**Verifikasi:** `bash run-suite.sh` → 1648 pass, 0 fail, 102 file. `tsc --noEmit` → exit 0.
+
+## M58 — Ink shell sebagai UI utama (TUI selalu aktif, bukan cuma squad) (2026-11-14)
+
+**Masalah:** TUI (ink) sebelumnya cuma muncul di **squad mode** — yang default OFF.
+Jadi 90% pemakaian (chat/task single-agent) gak punya TUI sama sekali. Kian cek
+sendiri CLI-nya dan TUI "gak ada efek apa-apa".
+
+**Solusi:** `src/renderer/Shell.tsx` (BARU) — ink shell sebagai UI utama:
+- **Header** — model, thread, mode
+- **Output area** — scrollable (max 200 baris), semua `print`/`printBlock` masuk sini
+- **Input box** — ganti readline (Enter kirim, Tab lengkapi, Ctrl+C keluar)
+- **Status bar** — provider + hint
+
+**Cara aktif:** `K_UI=ink` + stdout TTY. Kalau tidak, fallback readline (perilaku lama).
+
+**Arsitektur (boundary tetap bersih):**
+- Shell itu "dumb" — cuma render state + kirim input. Semua logic tetap di `repl.js`.
+- `src/ui.js` dapat `setUiSink(fn)` — kalau di-set, `print`/`printBlock` kirim ke
+  shell alih-alih `console.log`. Kalau null, perilaku lama utuh.
+- `repl.js` pakai abstraksi `ask()` — sumbernya readline ATAU shell, loop utama
+  tidak berubah.
+
+**Verifikasi:**
+- `tests/test-shell.mjs` → **14 pass, 0 fail** (render, API antrean, UI sink, shouldUseInk).
+- Render PTY manual: header + output + input + status bar tampil benar.
+- `bash run-suite.sh` → **1662 pass, 0 fail, 103 file**.
+- `tsc --noEmit` → exit 0.
+
+**Cara pakai:** `K_UI=ink ./bin/kian` (atau `K_UI=ink npm start`).

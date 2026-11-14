@@ -21,34 +21,15 @@ const SETTINGS_PATH = path.join(CONFIG_DIR, '.settings.json');
  * @property {boolean} active
  */
 
-// 7 Default Providers bawaan (seed)
+// 3 Default Providers bawaan (seed) — hanya yang terverifikasi jalan (2026-11-14).
+// Dibuang: xkiro-coder (model 404), gemini (key kosong), openrouter (401),
+// mistral (429 rate limit). Lihat SPEC M57.
 const DEFAULT_PROVIDERS = [
-  {
-    name: "xkiro-coder",
-    baseUrl: "https://api.xkiro.com/v1",
-    apiKey: process.env.XKIRO_API_KEY || "",
-    model: process.env.XKIRO_CODER_MODEL || "qwen/qwen3-coder-plus:free",
-    active: true
-  },
-  {
-    name: "gemini",
-    baseUrl: "https://generativelanguage.googleapis.com",
-    apiKey: process.env.GEMINI_API_KEY || "",
-    model: process.env.GEMINI_MODEL || "gemini-3.7-flash",
-    active: true
-  },
   {
     name: "xkiro",
     baseUrl: "https://api.xkiro.com/v1",
     apiKey: process.env.XKIRO_API_KEY || "",
-    model: process.env.XKIRO_MODEL || "qwen/qwen3.8-max:free",
-    active: true
-  },
-  {
-    name: "openrouter",
-    baseUrl: "https://openrouter.ai/api/v1",
-    apiKey: process.env.OPENROUTER_API_KEY || "",
-    model: process.env.OPENROUTER_MODEL || "nvidia/nemotron-3-ultra-550b-a55b:free",
+    model: process.env.XKIRO_MODEL || "mistralai/mistral-large-2512",
     active: true
   },
   {
@@ -56,13 +37,6 @@ const DEFAULT_PROVIDERS = [
     baseUrl: "https://integrate.api.nvidia.com/v1",
     apiKey: process.env.NVIDIA_API_KEY || "",
     model: process.env.NVIDIA_MODEL || "poolside/laguna-xs-2.1",
-    active: true
-  },
-  {
-    name: "mistral",
-    baseUrl: "https://api.mistral.ai/v1",
-    apiKey: process.env.MISTRAL_API_KEY || "",
-    model: process.env.MISTRAL_MODEL || "mistral-small-latest",
     active: true
   },
   {
@@ -110,10 +84,19 @@ function applyEnvOverrides(providers) {
   const toEnvName = (providerName) =>
     providerName.toUpperCase().replace(/-/g, '_') + '_API_KEY';
 
+  const toModelEnvName = (providerName) =>
+    providerName.toUpperCase().replace(/-/g, '_') + '_MODEL';
+
   const envNameOverride = { 'xkiro-coder': 'XKIRO_API_KEY' };
+  const modelEnvOverride = { 'xkiro-coder': 'XKIRO_CODER_MODEL' };
 
   const getEnvKey = (providerName) => {
     const envName = envNameOverride[providerName] || toEnvName(providerName);
+    return process.env[envName];
+  };
+
+  const getEnvModel = (providerName) => {
+    const envName = modelEnvOverride[providerName] || toModelEnvName(providerName);
     return process.env[envName];
   };
 
@@ -122,7 +105,10 @@ function applyEnvOverrides(providers) {
     if (envVal) {
       p.apiKey = envVal;
     }
-    // else keep whatever is in settings (could be empty)
+    const envModel = getEnvModel(p.name);
+    if (envModel) {
+      p.model = envModel;
+    }
   }
 }
 

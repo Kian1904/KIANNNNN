@@ -1,6 +1,7 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/usr/bin/env bash
 # run-suite.sh — jalankan SEMUA test .mjs di tests/ dan rekap hasilnya.
 # Sengaja gak ada runner eksternal (jest/vitest) — KIANNNNN zero-dep.
+# Test dijalankan lewat `node --import tsx` karena ada test yang meng-import .tsx.
 cd "$(dirname "$0")" || exit 1
 
 total_pass=0
@@ -10,7 +11,7 @@ failed_files=""
 skipped_files=""
 
 for f in tests/test-*.mjs; do
-  raw=$(node "$f" 2>&1)
+  raw=$(node --import tsx "$f" 2>&1)
   code=$?
   out=$(printf '%s\n' "$raw" | grep -v "^\[telegram-bot\]")
   line=$(printf '%s\n' "$out" | grep -oE "[0-9]+ pass, [0-9]+ fail" | tail -1)

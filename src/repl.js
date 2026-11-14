@@ -7,9 +7,9 @@ import { askWithFallback, PROVIDER_NAMES, setModelPrimary, getModelPrimary } fro
 import { runCasual } from './run-casual.js';
 import { runInstruction, getActiveAgent, setActiveAgent, listAgents, plan, executePlan } from './orchestrator.js';
 import { discoverTools } from '../mcp/client.js';
-import { print, printBlock, printUserMessage, printAssistantMessage, printSystemMessage, header, sep, blank, PROMPT, completer, banner } from './ui.js';
+import { print, printBlock, printUserMessage, printAssistantMessage, printSystemMessage, header, sep, blank, PROMPT, completer, banner, setUiSink } from './ui.js';
 import { createSquadUiState, applySquadEvent, renderPlainSquad, shouldUseInk } from './squad-ui.js';
-import { startInkSquadUi } from './ink-squad-ui.js';
+import { startInkSquadUi } from './renderer/SquadView.tsx';
 import { readEnv } from './env.js';
 import * as tui from './tui.js';
 import { classifyIntent } from './intent.js';
@@ -19,7 +19,9 @@ import { handleUsage } from './commands/usage.js';
 import { handleConnect } from './commands/connect.js';
 import { handleAuth } from './commands/auth.js'; // BARU
 import { isDangerous } from './approval.js';
-import { MODES, DESTRUCTIVE_ACTIONS, normalizeMode, decide, MODE_DESCRIPTIONS } from './modes.js';
+import { MODES, normalizeMode, MODE_DESCRIPTIONS } from './modes.js';
+import { createApprovalController, createSessionStats } from './core/repl-session.js';
+import { handleRollback } from './core/rollback.js';
 import { routeTask, describeRouting } from './optional/routing.js';
 import { reviewPlan, MAX_REPLANS } from './plan-review.js';
 
@@ -41,81 +43,68 @@ async function startREPL() {
   tui.setCursorVisible(false);
   tui.clearScreen();
 
-  const rl = readline.createInterface({
+  // ── M58: ink shell (opsional) ──────────────────────────────────────────────
+  // Kalau K_UI=ink + TTY, pakai ink shell sebagai UI utama. Semua output
+  // (print/printBlock/dll) di-redirect ke shell, dan input diambil dari shell.
+  // Kalau tidak, fallback ke readline seperti biasa — perilaku lama tetap utuh.
+  const useInkShell = shouldUseInk();
+  let shell = null;
+  let shellInputResolve = null;
+  let shellInputQueue = [];
+
+  if (useInkShell) {
+    const { startShell } = await import('./renderer/Shell.tsx');
+    shell = startShell(
+      {
+        model: 'memuat...',
+        thread: '-',
+        mode: approvalMode,
+        provider: '',
+        lines: [],
+        busy: false,
+        status: '',
+      },
+      (value) => {
+        // Input dari shell → antre buat loop utama
+        if (shellInputResolve) {
+          const r = shellInputResolve;
+          shellInputResolve = null;
+          r(value);
+        } else {
+          shellInputQueue.push(value);
+        }
+      },
+      () => { process.exit(0); },
+    );
+    // Redirect semua output UI ke shell
+    setUiSink((kind, text) => shell.api.pushLine({ kind, text }));
+  }
+
+  const rl = useInkShell ? null : readline.createInterface({
     input: process.stdin,
     output: process.stdout,
     completer
   });
 
   const ask = (question) => {
+    if (useInkShell) {
+      // Ambil dari antrean shell; kalau kosong, tunggu input berikutnya.
+      if (shellInputQueue.length > 0) return Promise.resolve(shellInputQueue.shift());
+      return new Promise(resolve => { shellInputResolve = resolve; });
+    }
     return new Promise(resolve => rl.question(question, resolve));
   };
 
-  const askApproval = async (label, { forceAsk = false } = {}) => {
-    // ── MODE GATE ────────────────────────────────────────────────────────
-    // Destruktif = forceAsk dari command shell (rm/sudo/dd/...), ATAU label-nya
-    // sendiri aksi destruktif (delete/rename/move/remove).
-    const destructive = forceAsk || DESTRUCTIVE_ACTIONS.has(String(label).toLowerCase());
-    const verdict = decide(approvalMode, { action: label, isDestructive: destructive });
-
-    if (verdict.auto) {
-      print('auto', `${label} auto-approved (mode: ${approvalMode.toUpperCase()}).`);
-      return { approved: true, condition: null };
-    }
-
-    // ── Mode SAFE / WELL-WELL + destruktif: tanya manual ────────────────
-    if (!forceAsk && sessionAllowed.has(label)) {
-      print('auto', `${label} diizinkan untuk sesi ini.`);
-      return { approved: true, condition: null };
-    }
-
-    if (forceAsk) print('warn', 'Command destruktif — "allow for session" tidak tersedia.');
-    if (approvalMode === MODES.WELLWELL) {
-      print('warn', 'Aksi destruktif — mode WELL-WELL tetap minta approval.');
-    }
-
-    console.log('  1) Allow once');
-    if (!forceAsk) console.log('  2) Allow for this session');
-    console.log('  3) Do not approve');
-    console.log('  4) Approve with condition');
-
-    const choice = (await ask(PROMPT)).trim();
-
-    if (choice === '1') return { approved: true, condition: null };
-
-    if (choice === '2') {
-      if (forceAsk) {
-        print('warn', 'Tidak tersedia untuk command destruktif.');
-        return { approved: false, condition: null };
-      }
-      sessionAllowed.add(label);
-      print('session_ok', `${label} akan auto-approved sampai /exit.`);
-      return { approved: true, condition: null };
-    }
-
-    if (choice === '3') return { approved: false, condition: null };
-
-    if (choice === '4') {
-      const condition = await ask('  Ketik kondisi: ');
-      console.log(`\n  Kondisi yang akan diteruskan: "${condition.trim()}"`);
-      const confirm = await ask('  Lanjut? (y/n): ');
-      if (confirm.trim().toLowerCase() !== 'y') return { approved: false, condition: null };
-      return { approved: true, condition: condition.trim() };
-    }
-
-    print('warn', 'Input tidak valid — default: tidak diapprove.');
-    return { approved: false, condition: null };
-  };
+  const askApproval = createApprovalController({
+    ask,
+    print,
+    approvalMode: () => approvalMode,
+    sessionAllowed,
+    prompt: PROMPT,
+  });
 
   // Session stats
-  const stats = { tasks: 0, llmCalls: 0, byProvider: {}, byAction: {} };
-  const trackProvider = (name) => {
-    stats.llmCalls++;
-    stats.byProvider[name] = (stats.byProvider[name] || 0) + 1;
-  };
-  const trackAction = (action) => {
-    stats.byAction[action] = (stats.byAction[action] || 0) + 1;
-  };
+  const { stats, trackProvider, trackAction } = createSessionStats();
 
   let availableTools = [];
   try {
@@ -132,6 +121,11 @@ async function startREPL() {
 
   const agentList = listAgents();
   banner('0.2.0', modelLabel, agentList.length, availableTools.length);
+
+  // M58: update header shell dengan info model yang sebenarnya
+  if (shell) {
+    shell.api.setState({ model: modelLabel, mode: approvalMode });
+  }
 
   if (availableTools.length > 0) {
     print('mcp_init', `${availableTools.length} tool: ${availableTools.map(t => t.name).join(', ')}`);
@@ -151,6 +145,7 @@ async function startREPL() {
   const { createThread, logStep, getConversation } = await import('./db.js');
   let threadId = createThread();
   print('info', `Thread #${threadId} dibuat untuk sesi ini.`);
+  if (shell) shell.api.setState({ thread: threadId });
 
   printSystemMessage(`KIANNNNN aktif. Mode percakapan dimulai.\nKetik pesan kamu atau gunakan /command.\nGunakan /help untuk daftar perintah.`);
 
@@ -183,6 +178,13 @@ async function startREPL() {
 
     // /rollback [filepath]
     if (instruction.toLowerCase().startsWith('/rollback')) {
+      const filepath = instruction.split(' ')[1];
+      await handleRollback(filepath, { ask, print, printBlock, sep });
+      continue;
+    }
+
+    /* legacy rollback handler removed; behavior lives in core/rollback.js.
+    /* if (instruction.toLowerCase().startsWith('/rollback')) {
       const filepath = instruction.split(' ')[1];
       if (!filepath) {
         const { listSnapshots } = await import('./db.js');
@@ -266,6 +268,7 @@ async function startREPL() {
       }
       continue;
     }
+    */
 
     // /connect [add <url> | toggle <name>]
     if (instruction.toLowerCase().startsWith('/connect')) {
@@ -691,11 +694,16 @@ async function startREPL() {
     }
     else {
       logStep({ threadId, role: 'user', content: instruction });
-      
+
       // TUI: Show processing animation sebelum task start
-      process.stdout.write(await tui.loadingAnimation('memproses task', 3000));
-      
-      await runInstruction(instruction, agentMd, availableTools, threadId, stats, trackProvider, trackAction, isDangerous, askApproval);
+      if (shell) shell.api.setBusy(true);
+      else process.stdout.write(await tui.loadingAnimation('memproses task', 3000));
+
+      try {
+        await runInstruction(instruction, agentMd, availableTools, threadId, stats, trackProvider, trackAction, isDangerous, askApproval);
+      } finally {
+        if (shell) shell.api.setBusy(false);
+      }
     }
   }
 }

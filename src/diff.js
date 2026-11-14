@@ -3,6 +3,10 @@
 // untuk file besar"): baris yang di-insert/delete di tengah kini TIDAK bikin
 // seluruh file bergeser dan ke-flag semua.
 //
+// Sejak M49: ada versi async (showDiffAsync) yang delegasi ke binary Go
+// (core-go/cmd/kian-fs, op "diff"). Fallback JS di bawah tetap dipakai kalau
+// binary tidak ada — jadi CLI tetap jalan tanpa Go terinstall.
+//
 // Written by K'
 
 const CTX = 3;        // baris context per hunk
@@ -161,4 +165,29 @@ export function showDiff(oldContent, newContent) {
   }
 
   return out.join('\n');
+}
+
+// ── Bridge Go (M49) ──────────────────────────────────────────────────────────
+// Pakai koneksi persistent (src/core/go-bridge.js) — spawn per-request makan
+// ~22ms di Termux, lebih mahal dari kerjaannya sendiri.
+
+import { callGo, goAvailable, goBridgeStatus as _status } from './core/go-bridge.js';
+
+/**
+ * Versi async dari showDiff. Pakai Go kalau bridge tersedia, fallback JS kalau tidak.
+ * @param {string} oldContent
+ * @param {string} newContent
+ * @returns {Promise<string>}
+ */
+export async function showDiffAsync(oldContent, newContent) {
+  if (goAvailable()) {
+    const res = await callGo({ op: 'diff', oldContent, newContent });
+    if (res.ok) return res.result;
+  }
+  return showDiff(oldContent, newContent);
+}
+
+/** Status bridge Go — buat diagnosa / test. */
+export function goBridgeStatus() {
+  return _status();
 }

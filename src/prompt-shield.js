@@ -8,7 +8,13 @@
 //
 // Prinsip: konten dari luar adalah DATA, bukan INSTRUKSI.
 //
+// Sejak M50: ada versi async (scanForInjectionAsync, sanitizeUntrustedAsync,
+// wrapUntrustedAsync) yang delegasi ke binary Go (core-go/cmd/kian-fs) lewat
+// bridge persistent. Fallback JS di bawah tetap dipakai kalau binary tidak ada.
+//
 // Written by K'
+
+import { callGo, goAvailable, goBridgeStatus as _goStatus } from './core/go-bridge.js';
 
 /**
  * Pola prompt injection yang umum. Setiap entry punya name (untuk logging)
@@ -101,4 +107,59 @@ export function wrapUntrusted(content, source = 'unknown', origin = '') {
 export function describeScan(result) {
   if (result.safe) return 'safe';
   return `injection: ${result.patterns.map(p => p.name).join(', ')}`;
+}
+
+// ── Versi async (delegasi ke Go kalau tersedia) ──────────────────────────────
+
+/**
+ * Versi async dari scanForInjection. Pakai Go kalau bridge tersedia.
+ * @param {string} text
+ * @returns {Promise<{safe: boolean, patterns: Array<{name:string, match:string}>}>}
+ */
+export async function scanForInjectionAsync(text) {
+  if (goAvailable()) {
+    const res = await callGo({ op: 'scanInjection', text });
+    if (res.ok) return res.result;
+  }
+  return scanForInjection(text);
+}
+
+/**
+ * Versi async dari sanitizeUntrusted. Pakai Go kalau bridge tersedia.
+ * @param {string} text
+ * @returns {Promise<string>}
+ */
+export async function sanitizeUntrustedAsync(text) {
+  if (goAvailable()) {
+    const res = await callGo({ op: 'sanitizeUntrusted', text });
+    if (res.ok) return res.result;
+  }
+  return sanitizeUntrusted(text);
+}
+
+/**
+ * Versi async dari wrapUntrusted. Pakai Go kalau bridge tersedia.
+ *
+ * Catatan: JS default parameter `source = 'unknown'` hanya berlaku kalau
+ * argumen `undefined`. Supaya JS dan Go konsisten, di sini `undefined`/`''`
+ * dinormalisasi ke 'unknown' SEBELUM dikirim — jadi kedua implementasi
+ * menerima input yang sama.
+ *
+ * @param {string} content
+ * @param {string} source
+ * @param {string} origin
+ * @returns {Promise<string>}
+ */
+export async function wrapUntrustedAsync(content, source = 'unknown', origin = '') {
+  const src = source || 'unknown';
+  if (goAvailable()) {
+    const res = await callGo({ op: 'wrapUntrusted', text: content, source: src, origin });
+    if (res.ok) return res.result;
+  }
+  return wrapUntrusted(content, src, origin);
+}
+
+/** Status bridge Go — buat diagnosa / test. */
+export function goBridgeStatus() {
+  return _goStatus();
 }
