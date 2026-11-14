@@ -19,6 +19,7 @@ import (
 
 	"github.com/Kian1904/KIANNNNN/core-go/internal/diffutil"
 	"github.com/Kian1904/KIANNNNN/core-go/internal/fsutil"
+	"github.com/Kian1904/KIANNNNN/core-go/internal/indexutil"
 	"github.com/Kian1904/KIANNNNN/core-go/internal/safetyutil"
 	"github.com/Kian1904/KIANNNNN/core-go/internal/shieldutil"
 )
@@ -37,6 +38,7 @@ type request struct {
 	B          string   `json:"b"`
 	Name       string   `json:"name"`
 	Candidates []string `json:"candidates"`
+	Files      []string `json:"files"`
 }
 
 func main() {
@@ -86,6 +88,8 @@ func main() {
 			writeJSON(out, map[string]any{"ok": true, "result": safetyutil.LevenshteinDistance(req.A, req.B)})
 		case "findNearest":
 			writeJSON(out, map[string]any{"ok": true, "result": safetyutil.FindNearest(req.Name, req.Candidates)})
+		case "buildIndex":
+			writeJSON(out, map[string]any{"ok": true, "result": indexutil.BuildIndex(req.Files)})
 		default:
 			writeJSON(out, map[string]any{"ok": false, "error": "unknown_op: " + req.Op})
 		}

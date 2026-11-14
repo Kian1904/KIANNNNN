@@ -1893,3 +1893,39 @@ sebagai referensi + oracle.
 - `tests/test-go-safety.mjs` → 23 pass, 0 fail.
 - `bash run-suite.sh` → **1573 pass, 0 fail, 98 file**.
 - `tsc --noEmit` → exit 0.
+
+## M52 — Modul kelima (`indexutil`) + FINDING: Go regex lebih lambat dari V8 (2026-11-14)
+
+**Modul kelima:** `src/indexer.js` (BARU) → `core-go/internal/indexutil`.
+Index simbol codebase (fungsi, class, export, import). Oracle
+`tests/test-go-index.mjs`: **679 simbol identik** di 97 file.
+
+**FINDING BESAR — Go regex (RE2) LEBIH LAMBAT dari V8 regex:**
+| Operasi | JS | Go | Rasio |
+|---|---|---|---|
+| BuildIndex 95 file (murni, tanpa IPC) | **37ms** | 86.6ms | **0.43x** (Go 2.3× lebih lambat) |
+| BuildIndex via bridge (dengan IPC) | 32.4ms | 99.0ms | 0.33x |
+| IPC murni (op ringan) | — | 1.1ms | — |
+
+**Akar masalah:** Go pakai **RE2** (dijamin linear, no backtracking — untuk keamanan),
+V8 pakai **Irregexp** (backtracking, JIT-compiled — untuk kecepatan). Untuk pola
+seperti `^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)`, V8 jauh
+lebih cepat. **Bukan soal IPC** — Go-nya sendiri yang lambat (86ms vs 37ms).
+
+**Implikasi:** setiap modul yang inti kerjanya **regex matching** kemungkinan besar
+akan kalah di Go. Ini memperkuat temuan M50 (shieldutil kalah 60×).
+
+**POLA FINAL (setelah 5 modul):**
+> Go menang kalau: (1) kerjaannya **bukan regex**, (2) CPU-bound berat, (3) payload
+> kecil, (4) **sudah diukur**. Kalau inti kerjanya regex → **tetap di JS** (V8 unggul).
+
+**Kandidat Go yang masih mungkin menang (belum diuji):**
+- Numerik murni (tanpa regex): hashing, checksum, kompresi, kriptografi
+- Parsing manual (bukan regex): tokenizer char-by-char, state machine
+- Sorting/searching data besar
+
+**Verifikasi (2026-11-14, Termux):**
+- `go test ./...` → ok (5 paket).
+- `tests/test-go-index.mjs` → 6 pass (679 simbol identik).
+- `bash run-suite.sh` → **1579 pass, 0 fail, 99 file**.
+- `tsc --noEmit` → exit 0.
