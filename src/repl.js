@@ -7,7 +7,7 @@ import { askWithFallback, PROVIDER_NAMES, setModelPrimary, getModelPrimary } fro
 import { runCasual } from './run-casual.js';
 import { runInstruction, getActiveAgent, setActiveAgent, listAgents, plan, executePlan } from './orchestrator.js';
 import { discoverTools } from '../mcp/client.js';
-import { print, printBlock, printUserMessage, printAssistantMessage, printSystemMessage, header, sep, blank, PROMPT, completer, banner } from './ui.js';
+import { print, printBlock, printUserMessage, printAssistantMessage, printSystemMessage, header, sep, blank, PROMPT, completer, banner, setUiSink } from './ui.js';
 import { createSquadUiState, applySquadEvent, renderPlainSquad, shouldUseInk } from './squad-ui.js';
 import { startInkSquadUi } from './renderer/SquadView.tsx';
 import { readEnv } from './env.js';
@@ -43,13 +43,55 @@ async function startREPL() {
   tui.setCursorVisible(false);
   tui.clearScreen();
 
-  const rl = readline.createInterface({
+  // ── M58: ink shell (opsional) ──────────────────────────────────────────────
+  // Kalau K_UI=ink + TTY, pakai ink shell sebagai UI utama. Semua output
+  // (print/printBlock/dll) di-redirect ke shell, dan input diambil dari shell.
+  // Kalau tidak, fallback ke readline seperti biasa — perilaku lama tetap utuh.
+  const useInkShell = shouldUseInk();
+  let shell = null;
+  let shellInputResolve = null;
+  let shellInputQueue = [];
+
+  if (useInkShell) {
+    const { startShell } = await import('./renderer/Shell.tsx');
+    shell = startShell(
+      {
+        model: 'memuat...',
+        thread: '-',
+        mode: approvalMode,
+        provider: '',
+        lines: [],
+        busy: false,
+        status: '',
+      },
+      (value) => {
+        // Input dari shell → antre buat loop utama
+        if (shellInputResolve) {
+          const r = shellInputResolve;
+          shellInputResolve = null;
+          r(value);
+        } else {
+          shellInputQueue.push(value);
+        }
+      },
+      () => { process.exit(0); },
+    );
+    // Redirect semua output UI ke shell
+    setUiSink((kind, text) => shell.api.pushLine({ kind, text }));
+  }
+
+  const rl = useInkShell ? null : readline.createInterface({
     input: process.stdin,
     output: process.stdout,
     completer
   });
 
   const ask = (question) => {
+    if (useInkShell) {
+      // Ambil dari antrean shell; kalau kosong, tunggu input berikutnya.
+      if (shellInputQueue.length > 0) return Promise.resolve(shellInputQueue.shift());
+      return new Promise(resolve => { shellInputResolve = resolve; });
+    }
     return new Promise(resolve => rl.question(question, resolve));
   };
 
@@ -80,6 +122,11 @@ async function startREPL() {
   const agentList = listAgents();
   banner('0.2.0', modelLabel, agentList.length, availableTools.length);
 
+  // M58: update header shell dengan info model yang sebenarnya
+  if (shell) {
+    shell.api.setState({ model: modelLabel, mode: approvalMode });
+  }
+
   if (availableTools.length > 0) {
     print('mcp_init', `${availableTools.length} tool: ${availableTools.map(t => t.name).join(', ')}`);
   }
@@ -98,6 +145,7 @@ async function startREPL() {
   const { createThread, logStep, getConversation } = await import('./db.js');
   let threadId = createThread();
   print('info', `Thread #${threadId} dibuat untuk sesi ini.`);
+  if (shell) shell.api.setState({ thread: threadId });
 
   printSystemMessage(`KIANNNNN aktif. Mode percakapan dimulai.\nKetik pesan kamu atau gunakan /command.\nGunakan /help untuk daftar perintah.`);
 
@@ -646,11 +694,16 @@ async function startREPL() {
     }
     else {
       logStep({ threadId, role: 'user', content: instruction });
-      
+
       // TUI: Show processing animation sebelum task start
-      process.stdout.write(await tui.loadingAnimation('memproses task', 3000));
-      
-      await runInstruction(instruction, agentMd, availableTools, threadId, stats, trackProvider, trackAction, isDangerous, askApproval);
+      if (shell) shell.api.setBusy(true);
+      else process.stdout.write(await tui.loadingAnimation('memproses task', 3000));
+
+      try {
+        await runInstruction(instruction, agentMd, availableTools, threadId, stats, trackProvider, trackAction, isDangerous, askApproval);
+      } finally {
+        if (shell) shell.api.setBusy(false);
+      }
     }
   }
 }

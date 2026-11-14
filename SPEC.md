@@ -2109,3 +2109,32 @@ Agent memverifikasi sendiri hasilnya (baca ulang file).
 ```
 
 **Verifikasi:** `bash run-suite.sh` → 1648 pass, 0 fail, 102 file. `tsc --noEmit` → exit 0.
+
+## M58 — Ink shell sebagai UI utama (TUI selalu aktif, bukan cuma squad) (2026-11-14)
+
+**Masalah:** TUI (ink) sebelumnya cuma muncul di **squad mode** — yang default OFF.
+Jadi 90% pemakaian (chat/task single-agent) gak punya TUI sama sekali. Kian cek
+sendiri CLI-nya dan TUI "gak ada efek apa-apa".
+
+**Solusi:** `src/renderer/Shell.tsx` (BARU) — ink shell sebagai UI utama:
+- **Header** — model, thread, mode
+- **Output area** — scrollable (max 200 baris), semua `print`/`printBlock` masuk sini
+- **Input box** — ganti readline (Enter kirim, Tab lengkapi, Ctrl+C keluar)
+- **Status bar** — provider + hint
+
+**Cara aktif:** `K_UI=ink` + stdout TTY. Kalau tidak, fallback readline (perilaku lama).
+
+**Arsitektur (boundary tetap bersih):**
+- Shell itu "dumb" — cuma render state + kirim input. Semua logic tetap di `repl.js`.
+- `src/ui.js` dapat `setUiSink(fn)` — kalau di-set, `print`/`printBlock` kirim ke
+  shell alih-alih `console.log`. Kalau null, perilaku lama utuh.
+- `repl.js` pakai abstraksi `ask()` — sumbernya readline ATAU shell, loop utama
+  tidak berubah.
+
+**Verifikasi:**
+- `tests/test-shell.mjs` → **14 pass, 0 fail** (render, API antrean, UI sink, shouldUseInk).
+- Render PTY manual: header + output + input + status bar tampil benar.
+- `bash run-suite.sh` → **1662 pass, 0 fail, 103 file**.
+- `tsc --noEmit` → exit 0.
+
+**Cara pakai:** `K_UI=ink ./bin/kian` (atau `K_UI=ink npm start`).

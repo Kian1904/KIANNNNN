@@ -60,8 +60,24 @@ const LABELS = {
   web_search:'WEB SEARCH', sources:'SUMBER', search_err:'SEARCH ERROR',
 };
 
+// ── M58: UI sink (redirect output ke ink shell) ──────────────────────────────
+// Kalau di-set, print/printBlock kirim ke sink (shell) alih-alih console.log.
+// Dipakai waktu K_UI=ink. Kalau null, perilaku lama (console.log) tetap utuh.
+let _uiSink = null;
+export function setUiSink(fn) { _uiSink = typeof fn === 'function' ? fn : null; }
+export function getUiSink() { return _uiSink; }
+
 export function print(type, text) {
   text = text || '';
+  if (_uiSink) {
+    // Map tipe UI → kind shell
+    const kindMap = {
+      error: 'error', done: 'done', info: 'info', warn: 'error',
+      user: 'user', assistant: 'assistant', system: 'system',
+    };
+    _uiSink(kindMap[type] || 'info', String(text));
+    return;
+  }
   const label = pad(LABELS[type] || String(type).toUpperCase(), LABEL_W);
   const textW = w() - LABEL_W - 5;
   const lines = wrap(String(text), textW);
@@ -73,6 +89,10 @@ export function print(type, text) {
 }
 
 export function printBlock(text, indentN) {
+  if (_uiSink) {
+    _uiSink('block', String(text));
+    return;
+  }
   indentN = indentN || 4;
   const sp = ' '.repeat(indentN);
   for (const line of wrap(String(text), w() - indentN)) {
