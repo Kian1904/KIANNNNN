@@ -1825,3 +1825,39 @@ indexing). Modul dengan **payload besar** (teks file penuh) lebih baik tetap di 
 - `tests/test-go-bridge.mjs` → 10 pass. `tests/test-go-diff.mjs` → 15 pass.
 - `bash run-suite.sh` → **1422 pass, 0 fail, 96 file**.
 - `tsc --noEmit` → exit 0.
+
+## M50 — Modul ketiga (`shieldutil`) + FINDING: JS regex sudah sangat cepat (2026-11-14)
+
+**Modul ketiga:** `src/prompt-shield.js` → `core-go/internal/shieldutil`.
+Port 1:1 (10 pola regex + sanitize + wrap). Oracle `tests/test-go-shield.mjs`:
+**128 kasus, semua identik** — regex JS (V8) dan Go (RE2) ternyata kompatibel
+untuk pola-pola ini.
+
+**FINDING PENTING — prediksi gue SALAH, dan ini kenapa pengukuran wajib:**
+Gue kira regex matching itu CPU-bound yang cocok di Go. Ternyata:
+
+| Operasi | JS | Go (persistent) | Rasio |
+|---|---|---|---|
+| scan 10 regex, teks 6KB | **0.135ms** | 8.012ms | **0.02x** (Go 60× lebih lambat) |
+
+**Penyebab:** V8 regex engine sudah sangat teroptimasi, dan payload-nya kecil
+(6KB) — jadi overhead JSON + IPC bridge **mendominasi** total waktu. Go tidak
+punya kesempatan menang di sini.
+
+**Keputusan:** `scanForInjectionAsync` dkk **TIDAK dipakai di jalur panas**.
+`scanForInjection` (JS) tetap default. Port Go dipertahankan sebagai
+**referensi + oracle** (memverifikasi perilaku JS), bukan untuk kecepatan.
+
+**Aturan yang makin kuat (revisi M49):**
+> Port ke Go HANYA kalau: (1) CPU-bound **berat** (bukan sekadar "ada regex"),
+> (2) payload kecil, (3) **sudah diukur** lebih cepat. Regex matching TIDAK
+> memenuhi syarat — V8 sudah cukup cepat.
+
+**Modul yang kemungkinan besar TIDAK worth di-port:** apa pun yang cuma
+"regex + string manipulation" di payload kecil. V8 unggul di situ.
+
+**Verifikasi (2026-11-14, Termux):**
+- `go test ./...` → ok (fsutil + diffutil + shieldutil).
+- `tests/test-go-shield.mjs` → 128 pass, 0 fail.
+- `bash run-suite.sh` → **1550 pass, 0 fail, 97 file**.
+- `tsc --noEmit` → exit 0.

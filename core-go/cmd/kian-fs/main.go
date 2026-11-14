@@ -19,6 +19,7 @@ import (
 
 	"github.com/Kian1904/KIANNNNN/core-go/internal/diffutil"
 	"github.com/Kian1904/KIANNNNN/core-go/internal/fsutil"
+	"github.com/Kian1904/KIANNNNN/core-go/internal/shieldutil"
 )
 
 type request struct {
@@ -28,6 +29,9 @@ type request struct {
 	Limit      int    `json:"limit"`
 	OldContent string `json:"oldContent"`
 	NewContent string `json:"newContent"`
+	Text       string `json:"text"`
+	Source     string `json:"source"`
+	Origin     string `json:"origin"`
 }
 
 func main() {
@@ -67,6 +71,12 @@ func main() {
 			writeJSON(out, map[string]any{"ok": true, "result": content, "found": found})
 		case "diff":
 			writeJSON(out, map[string]any{"ok": true, "result": diffutil.ShowDiff(req.OldContent, req.NewContent)})
+		case "scanInjection":
+			writeJSON(out, map[string]any{"ok": true, "result": shieldutil.ScanForInjection(req.Text)})
+		case "sanitizeUntrusted":
+			writeJSON(out, map[string]any{"ok": true, "result": shieldutil.SanitizeUntrusted(req.Text)})
+		case "wrapUntrusted":
+			writeJSON(out, map[string]any{"ok": true, "result": shieldutil.WrapUntrusted(req.Text, req.Source, req.Origin)})
 		default:
 			writeJSON(out, map[string]any{"ok": false, "error": "unknown_op: " + req.Op})
 		}
