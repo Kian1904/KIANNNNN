@@ -1749,3 +1749,41 @@ dijalankan langsung lewat loader tsx.
 - `tsx` saat ini `devDependency`. Kalau CLI di-publish global, `tsx` harus jadi
   `dependency` biasa atau di-bundle, karena `bin/kian` bergantung pada `tsx/esm/api`.
 - `package.json` sekarang punya scripts: `start`, `typecheck`, `test`.
+
+## M48 — Migrasi core ke Go: modul pertama (`fsutil`) (2026-11-14)
+
+**Keputusan:** core mulai dimigrasi dari JavaScript ke **Go**, bertahap, satu modul
+per commit. Modul pertama: `src/utils/fs.js` → `core-go/internal/fsutil`.
+
+**Kenapa Go (hasil eval 16 bahasa di Termux, 2026-11-14):**
+- Warm build **2.8s**, RAM runtime **1.9 MB** (vs Node 41 MB), cross-compile 5 target
+  dalam **5.4s** dari HP.
+- Rust gugur: cold build 3m21s + `user CPU 12m25s` (HP panas), cross-compile ribet.
+- Zig gugur: tidak ada incremental cache (tiap build 33s).
+- Bun rusak di Termux (`libicui18n.so.79` tidak ada, Termux punya 78.3).
+- OCaml native compile rusak (`libasmrun.a` tidak ada di paket Termux).
+
+**Arsitektur integrasi (bertahap, bukan pisah total):**
+- Go binary `core-go/bin/kian-fs` bicara **JSON-line via stdio**.
+- `src/utils/fs.js` mengekspor versi **async** (`readFileRangeAsync`, `listDirSafeAsync`,
+  `readFileSafeAsync`) yang delegasi ke Go kalau binary ada.
+- **Fallback JS tetap ada** — kalau binary tidak ada (user cuma `npm i -g`), CLI tetap
+  jalan pakai implementasi JS. Jadi Go **opsional**, bukan hard dependency.
+- Build: `./build-go.sh` (skip kalau `go` tidak ada). Cross-compile: `GOOS=... GOARCH=... ./build-go.sh`
+  dengan `CGO_ENABLED=0` (wajib dari Termux — gcc-nya cuma ARM).
+
+**Boundary:** core `.js` boleh panggil Go; Go **tidak** tahu apa-apa soal JS/TUI.
+Kontrak satu-satunya: JSON-line di stdio.
+
+**Oracle test:** `tests/test-go-bridge.mjs` membandingkan hasil JS vs Go untuk kasus
+yang sama — harus **identik**. Ini yang menangkap 1 bug port: clamp `limit` negatif.
+JS `Math.max(1, Math.min(Number(-10) || 400, 5000))` = **1** (bukan 400), karena
+`Number(-10)` truthy. Go versi awal salah clamp ke 400 → ketahuan test, diperbaiki.
+
+**Verifikasi (2026-11-14, Termux):**
+- `go test ./...` → ok.
+- `node --import tsx tests/test-go-bridge.mjs` → 10 pass, 0 fail.
+- `bash run-suite.sh` → **1407 pass, 0 fail, 95 file**.
+- `tsc --noEmit` → exit 0.
+
+**Catatan:** `core-go/bin/` masuk `.gitignore` (binary di-build lokal, bukan di-commit).

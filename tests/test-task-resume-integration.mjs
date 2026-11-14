@@ -57,7 +57,7 @@ try {
   {
     // PENTING: pakai path ABSOLUT ke index.js. cwd-nya folder temp, jadi
     // 'index.js' relatif akan dicari di folder temp dan gagal (MODULE_NOT_FOUND).
-    const child = spawn(process.execPath, ['--import', "/home/agentuser/agent-dev/KIANNNNN/bin/tsx-register.mjs", path.join(ROOT, 'index.js')], {
+    const child = spawn(process.execPath, ['--import', path.join(ROOT, "bin", "tsx-register.mjs"), path.join(ROOT, 'index.js')], {
       cwd: CWD,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, HOME: TMP_HOME, K_STREAM: '0', K_NO_COLOR: '1' },
