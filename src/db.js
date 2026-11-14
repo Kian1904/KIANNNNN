@@ -317,6 +317,62 @@ export function saveLearningSummary({ summary, sourceIds }) {
   `).run({ summary, sourceIds: JSON.stringify(sourceIds) });
 }
 
+// ── Retrieval (M54) ──────────────────────────────────────────────────────────
+// Sebelum ini, memory cuma bisa dibaca "N terbaru" — keputusan relevan dari
+// task lama hilang. Fungsi di bawah memberi cara ambil berdasarkan RELEVANSI.
+
+/**
+ * Ambil SEMUA keputusan (buat scoring di memory-retrieval).
+ * @returns {Array<{id:number, key:string, value:string, context:string|null, created_at:string}>}
+ */
+export function getAllDecisions() {
+  const db = _open();
+  return db.prepare(`SELECT * FROM agent_decisions ORDER BY id DESC`).all();
+}
+
+/**
+ * Ambil SEMUA ringkasan learning.
+ * @returns {Array<{id:number, summary:string, source_ids:string|null, created_at:string}>}
+ */
+export function getAllLearningSummaries() {
+  const db = _open();
+  return db.prepare(`SELECT * FROM agent_learning ORDER BY id DESC`).all();
+}
+
+/**
+ * Cari keputusan berdasarkan key (exact match, case-insensitive).
+ * @param {string} key
+ * @returns {Array}
+ */
+export function getDecisionsByKey(key) {
+  const db = _open();
+  return db.prepare(`SELECT * FROM agent_decisions WHERE LOWER(key) = LOWER(?) ORDER BY id DESC`).all(key);
+}
+
+/**
+ * Ambil keputusan yang dibuat setelah timestamp tertentu.
+ * @param {string} since - ISO/SQLite datetime
+ * @returns {Array}
+ */
+export function getDecisionsSince(since) {
+  const db = _open();
+  return db.prepare(`SELECT * FROM agent_decisions WHERE created_at >= ? ORDER BY id DESC`).all(since);
+}
+
+/**
+ * Statistik memory — buat diagnosa / test.
+ * @returns {{decisions:number, learning:number, conversations:number, snapshots:number}}
+ */
+export function getMemoryStats() {
+  const db = _open();
+  return {
+    decisions: db.prepare(`SELECT COUNT(*) as c FROM agent_decisions`).get().c,
+    learning: db.prepare(`SELECT COUNT(*) as c FROM agent_learning`).get().c,
+    conversations: db.prepare(`SELECT COUNT(*) as c FROM conversations`).get().c,
+    snapshots: db.prepare(`SELECT COUNT(*) as c FROM snapshots`).get().c,
+  };
+}
+
 export function deleteThread(threadId) {
   const db = _open();
   return db.prepare(`DELETE FROM conversation_threads WHERE id = ?`).run(threadId);

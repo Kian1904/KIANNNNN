@@ -1958,3 +1958,38 @@ murni tanpa native equivalent di Node) — dan itu pun cuma di rentang menengah.
 
 **Rekomendasi akhir:** STOP migrasi core ke Go. Yang worth cuma modul algoritma murni
 spesifik. Sisanya (regex, I/O, crypto, orchestration) tetap di JS.
+
+## M54 — Memory retrieval: ambil memory RELEVAN, bukan cuma "terbaru" (2026-11-14)
+
+**Masalah:** sebelum M54, memory cuma bisa dibaca `getRecentDecisions(5)` — 5
+keputusan TERBARU. Keputusan relevan dari 500 task lalu HILANG. Agent "inget"
+yang terakhir, bukan yang penting. Ini gap terbesar di arsitektur memory.
+
+**Solusi:** `src/memory-retrieval.js` (BARU) + fungsi query baru di `db.js`.
+
+**`db.js` — fungsi baru:**
+- `getAllDecisions()` — semua keputusan (buat scoring)
+- `getAllLearningSummaries()` — semua ringkasan learning (sebelumnya GAK ADA cara baca balik!)
+- `getDecisionsByKey(key)` — exact match, case-insensitive
+- `getDecisionsSince(since)` — filter waktu
+- `getMemoryStats()` — statistik (decisions/learning/conversations/snapshots)
+
+**`memory-retrieval.js` — pendekatan:**
+- **TF-IDF sederhana** + **recency boost** (half-life 30 hari). Tanpa embedding,
+  tanpa dependency — ringan di Termux.
+- `tokenize()` — lowercase, buang stopword (ID + EN)
+- `buildIdf()` / `scoreRelevance()` — scoring cosine-ish
+- `recencyBoost()` — makin baru makin tinggi (0..1)
+- `retrieveRelevant(query, opts)` — ambil top-N memory relevan
+- `formatMemoryContext(result)` — format siap-inject ke prompt
+
+**Wiring:** `run-task.js` sekarang pakai `retrieveRelevant(instruction)` dengan
+**fallback** ke `getRecentDecisions(5)` kalau retrieval gagal — perilaku lama tetap aman.
+
+**Verifikasi (2026-11-14, Termux):**
+- `tests/test-memory-retrieval.mjs` → **29 pass, 0 fail** (db + retrieval + distill bareng).
+- `bash run-suite.sh` → **1608 pass, 0 fail, 100 file**.
+- `tsc --noEmit` → exit 0.
+
+**Catatan:** ini melengkapi komponen ke-12 dari 13 checklist agent (retrieval).
+Sisa: context compaction (`distill.js` masih 28 baris, cuma truncate+summarize).
