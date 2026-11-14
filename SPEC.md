@@ -1929,3 +1929,32 @@ akan kalah di Go. Ini memperkuat temuan M50 (shieldutil kalah 60×).
 - `tests/test-go-index.mjs` → 6 pass (679 simbol identik).
 - `bash run-suite.sh` → **1579 pass, 0 fail, 99 file**.
 - `tsc --noEmit` → exit 0.
+
+## M53 — Uji `hashutil` (SHA-256): SERI di skala kecil, menang 1.47× di skala besar (2026-11-14)
+
+**Eksperimen:** port hashing file (SHA-256) ke Go — kandidat "numerik murni, bukan
+regex" yang diharapkan menang besar. **Hasilnya tidak sesuai harapan:**
+
+| Skala | JS (node:crypto) | Go (via bridge) | Rasio |
+|---|---|---|---|
+| 95 file (codebase KIANNNNN) | 8.508ms | 8.499ms | **1.00×** (SERI) |
+| 1619 file (skala besar) | 155.3ms | **105.8ms** | **1.47×** (Go menang) |
+| Go murni (tanpa IPC), 95 file | — | 3.84ms | — |
+
+**Kenapa seri di skala kecil:** Go murni 3.84ms, tapi overhead IPC ~4.7ms
+menghabiskan keunggulan. Node `crypto` itu **native C++** (bukan JS murni), jadi
+sudah cepat.
+
+**KEPUTUSAN: `hashutil` DI-REVERT** (tidak di-commit). Tidak worth untuk codebase
+95 file. Baru worth kalau index 1000+ file.
+
+**PELAJARAN FINAL (setelah 6 eksperimen):**
+> Node sudah punya **native C++** untuk banyak operasi berat (crypto, zlib, regex).
+> Jadi "Go lebih cepat" hanya berlaku kalau: (1) Node TIDAK punya native equivalent,
+> (2) kerjaannya jauh lebih besar dari overhead IPC (~1-5ms), (3) bukan regex.
+
+**Yang beneran menang di Go (dari 6 eksperimen):** cuma `diffutil` (Myers, algoritma
+murni tanpa native equivalent di Node) — dan itu pun cuma di rentang menengah.
+
+**Rekomendasi akhir:** STOP migrasi core ke Go. Yang worth cuma modul algoritma murni
+spesifik. Sisanya (regex, I/O, crypto, orchestration) tetap di JS.
