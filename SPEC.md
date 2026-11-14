@@ -2028,3 +2028,49 @@ nyata kenapa test suite penting: regresi ketahuan langsung.
 **CHECKLIST AGENT LENGKAP (13/13):** planning, plan-review, task-state, task-journal,
 task-contract, task-budget, evidence, completion-gate, recovery, verifier, persistent
 memory, retrieval (M54), context compaction (M55).
+
+## M56 — 3 bug kritis ketemu saat TEST PEMAKAIAN NYATA (2026-11-14)
+
+Test otomatis (1634 test) **TIDAK nangkep** 3 bug ini. Ketemu waktu jalanin agent
+beneran dengan task multi-langkah + provider nyata (Groq). Pelajaran: test otomatis
++ test pemakaian nyata = dua-duanya perlu.
+
+### BUG 1 (KRITIS) — `systemPromptOverride` MENGGANTI system prompt
+`src/plan.js`: `const systemPrompt = systemPromptOverride || SYSTEM_PROMPT`.
+Kalau ada override (mis. contract block), **SYSTEM_PROMPT — yang berisi DAFTAR
+ACTION VALID — HILANG TOTAL**. Akibatnya model mengarang action sendiri
+(`ACTION: READ_FILE` bukan `read`) → parser gagal → **agent mati total** setiap
+kali ada contract (yang SELALU ada untuk task normal).
+**Fix:** override DIGABUNG (`${base}\n\n${override}`), bukan mengganti.
+
+### BUG 2 — native tool-calling menimpa format teks
+Model baru (`gpt-oss-120b`, `qwen3.8-27b`) punya tool-calling bawaan. Mereka balas
+`<tool_call><function=BASH>...` atau JSON `{"cmd":[...]}`, **bukan** `ACTION: ...`.
+Parser teks gagal total.
+**Fix:** kirim `tool_choice: 'none'` di request (`src/providers.js`).
+
+### BUG 3 — `PROVIDER_NAMES` dievaluasi di top-level
+`src/providers.js`: `export const PROVIDER_NAMES = loadProviders().map(...)`.
+ESM hoisting bisa menjalankan ini SEBELUM `dotenv/config` selesai → `process.env`
+kosong → semua apiKey/model kosong.
+**Fix:** jadikan lazy (`getProviderNames()` + `PROVIDER_NAMES` sebagai Proxy).
+
+### Hasil test pemakaian nyata (SETELAH fix)
+Agent berhasil menyelesaikan task end-to-end:
+```
+Task: "Baca kalkulator.js, lalu tambahkan fungsi kali(a,b)"
+Langkah 1: LIST_DIR .        ✅
+Langkah 2: READ kalkulator.js ✅
+Langkah 3: EDIT (tambah kali) ✅
+Hasil: file kalkulator.js berisi fungsi kali(a,b) yang benar ✅
+```
+
+### Masalah provider (BUKAN bug kode, konfigurasi Kian)
+- Groq `qwen3.8-27b`: rate limit ITPM (boros token).
+- XKIRO: model `qwen3-coder-plus:free` 404 (sudah tidak ada).
+- Gemini: API key kosong.
+
+### Verifikasi
+- `tests/test-regression-m56.mjs` → **14 pass, 0 fail** (regresi 3 bug).
+- `bash run-suite.sh` → **1648 pass, 0 fail, 102 file**.
+- `tsc --noEmit` → exit 0.

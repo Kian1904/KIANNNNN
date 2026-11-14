@@ -39,6 +39,11 @@ function makeOpenAICompatible({ name, baseUrl, apiKey, model }) {
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.2,
+        // M56: matikan native tool-calling. Model baru (gpt-oss, qwen3, dll)
+        // punya tool-calling bawaan yang MENIMPA instruksi format teks agent
+        // (mereka balas <tool_call> atau JSON, bukan "ACTION: ..."). Ini bikin
+        // parser gagal total. tool_choice:'none' memaksa mereka balas teks biasa.
+        tool_choice: 'none',
         ...(useStream ? { stream: true } : {})
       })
     });
@@ -175,10 +180,29 @@ export function getDynamicProviders() {
 }
 
 // For /model menu
-export const PROVIDER_NAMES = loadProviders().map(p => ({
-  key: p.name,
-  label: `${p.name.toUpperCase()} (${p.name})`
-}));
+// PENTING: jangan evaluasi loadProviders() di top-level. ESM hoisting bisa
+// menjalankan module ini SEBELUM `dotenv/config` selesai → process.env kosong →
+// semua apiKey/model jadi kosong (bug: cascade mati total). Jadikan lazy.
+export function getProviderNames() {
+  return loadProviders().map(p => ({
+    key: p.name,
+    label: `${p.name.toUpperCase()} (${p.name})`
+  }));
+}
+
+// Backward-compat: Proxy yang dievaluasi saat diakses, bukan saat import.
+export const PROVIDER_NAMES = new Proxy([], {
+  get(_t, prop) {
+    const list = getProviderNames();
+    const v = list[prop];
+    return typeof v === 'function' ? v.bind(list) : v;
+  },
+  has(_t, prop) { return prop in getProviderNames(); },
+  ownKeys() { return Reflect.ownKeys(getProviderNames()); },
+  getOwnPropertyDescriptor(_t, prop) {
+    return Object.getOwnPropertyDescriptor(getProviderNames(), prop);
+  },
+});
 
 // ── Cascade race ─────────────────────────────────────────────────────────────
 // onToken diteruskan ke provider. PENTING: kalau provider gagal di TENGAH

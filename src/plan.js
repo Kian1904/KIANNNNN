@@ -126,11 +126,18 @@ export function buildHistoryText(history) {
 
 export async function planStep(askFn, { instruction, fileSnapshot, history, agentMd, recentMemory, availableTools, webSearchCount, systemPromptOverride }) {
   // systemPromptOverride dipakai oleh agent ber-role (lihat src/agents.js) untuk
-  // mengganti prompt generik dengan prompt spesifik role + pembatasan aksi.
+  // MENAMBAH prompt spesifik role + pembatasan aksi.
+  //
+  // BUGFIX (M56): dulu `systemPromptOverride || SYSTEM_PROMPT` — kalau override
+  // ada, SYSTEM_PROMPT (yang berisi DAFTAR ACTION VALID) HILANG TOTAL. Akibatnya
+  // model mengarang action sendiri (mis. "ACTION: READ_FILE" bukan "read") dan
+  // parser gagal. Sekarang override DIGABUNG dengan SYSTEM_PROMPT, bukan mengganti.
+  const base = agentMd
+    ? `${SYSTEM_PROMPT}\n\n## Project Instructions (AGENT.md)\n${agentMd}`
+    : SYSTEM_PROMPT;
   const systemPrompt = systemPromptOverride
-    || (agentMd
-      ? `${SYSTEM_PROMPT}\n\n## Project Instructions (AGENT.md)\n${agentMd}`
-      : SYSTEM_PROMPT);
+    ? `${base}\n\n${systemPromptOverride}`
+    : base;
 
   const memoryText = recentMemory && recentMemory.length > 0
   ? recentMemory.map(m => `- [${m.key}]: ${m.value}`).join('\n')
