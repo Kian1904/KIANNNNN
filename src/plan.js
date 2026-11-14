@@ -1,4 +1,5 @@
 import { SYSTEM_PROMPT } from './prompts/system.js';
+import { compactHistory } from './context-compaction.js';
 
 const DEBUG = process.argv.includes('--debug');
 const dbg = (...args) => { if (DEBUG) console.log('[DEBUG:plan]', ...args); };
@@ -162,7 +163,7 @@ export async function planStep(askFn, { instruction, fileSnapshot, history, agen
    ${memoryText}
 
 History langkah sebelumnya di task ini:
-   ${buildHistoryText(history)}
+   ${compactHistory(history).text}
 ${searchLimitWarning}
 Kerjakan task tersebut sekarang — langsung pilih ACTION yang paling logis.`;
 

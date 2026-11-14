@@ -1993,3 +1993,38 @@ yang terakhir, bukan yang penting. Ini gap terbesar di arsitektur memory.
 
 **Catatan:** ini melengkapi komponen ke-12 dari 13 checklist agent (retrieval).
 Sisa: context compaction (`distill.js` masih 28 baris, cuma truncate+summarize).
+
+## M55 — Context compaction: komponen ke-13 (TERAKHIR) dari checklist agent (2026-11-14)
+
+**Masalah:** `buildHistoryText` (plan.js) meng-include **ISI FILE PENUH** tiap langkah
+READ. Di task panjang (100+ langkah), history bisa jadi ratusan KB yang dikirim ULANG
+tiap iterasi — boros token, bisa melewati context window.
+
+**Solusi:** `src/context-compaction.js` (BARU) — kompaksi hierarkis:
+1. **Langkah terbaru** (`keepRecent=8`) → detail penuh
+2. **Langkah lama** → diringkas 1 baris (aksi + target + status)
+3. **Isi file besar** → dipotong (awal 60% + akhir 40%) + placeholder ukuran
+4. **Batas total** (`maxTotal=24000` char ≈ 6k token) → dipaksa, termasuk potong
+   baris ringkasan kalau perlu
+
+**Hasil terukur:** history 50 langkah × 3000 char → **152.830 char → 18.392 char
+(hemat 88%)**.
+
+**Wiring:** `plan.js` sekarang pakai `compactHistory(history).text` di prompt building
+(jalur panas). `buildHistoryText` tetap ada (dipakai pesan error di run-task.js).
+
+**BUG yang ketemu & diperbaiki (regresi):** versi awal meringkas `user_condition`
+jadi `Langkah N: USER_CONDITION` — **teks hint recovery `[RECOVERY: ...]` HILANG**,
+bikin `test-recovery-integration.mjs` gagal (5 pass → 1 fail). Fix: `user_condition`
+dan `note` **tidak diringkas** — teksnya disimpan (potong 300/200 char). Ini contoh
+nyata kenapa test suite penting: regresi ketahuan langsung.
+
+**Verifikasi (2026-11-14, Termux):**
+- `tests/test-context-compaction.mjs` → **26 pass, 0 fail** (bareng memory + distill).
+- `tests/test-recovery-integration.mjs` → 5 pass, 0 fail (regresi diperbaiki).
+- `bash run-suite.sh` → **1634 pass, 0 fail, 101 file**.
+- `tsc --noEmit` → exit 0.
+
+**CHECKLIST AGENT LENGKAP (13/13):** planning, plan-review, task-state, task-journal,
+task-contract, task-budget, evidence, completion-gate, recovery, verifier, persistent
+memory, retrieval (M54), context compaction (M55).
