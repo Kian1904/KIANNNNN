@@ -16,6 +16,12 @@ const fixture = path.join(process.cwd(), '.tmp-go-bridge-test.txt');
 const lines = Array.from({ length: 500 }, (_, i) => `baris-${i + 1}`);
 fs.writeFileSync(fixture, lines.join('\n'));
 
+// Fixture .env — JANGAN bergantung .env asli (gitignored, gak ada di clone bersih).
+// Test ini dulu rapuh: expect .env ada, padahal cuma ada di mesin dev.
+const envFixture = path.join(process.cwd(), '.env');
+const envExisted = fs.existsSync(envFixture);
+if (!envExisted) fs.writeFileSync(envFixture, 'DUMMY=1\n');
+
 try {
   // 1. readFileRange: JS vs Go harus identik
   const jsRange = readFileRange(fixture, 10, 5);
@@ -48,6 +54,8 @@ try {
   check('clamp negatif: identik', jsClamp.start === goClamp.start && jsClamp.end === goClamp.end);
 } finally {
   fs.unlinkSync(fixture);
+  // Hapus .env fixture HANYA kalau kita yang bikin (jangan hapus .env asli user).
+  if (!envExisted) { try { fs.unlinkSync(envFixture); } catch { /* ignore */ } }
 }
 
 console.log(`\n=== HASIL GO-BRIDGE: ${pass} pass, ${fail} fail ===`);
