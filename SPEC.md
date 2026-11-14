@@ -2074,3 +2074,38 @@ Hasil: file kalkulator.js berisi fungsi kali(a,b) yang benar ✅
 - `tests/test-regression-m56.mjs` → **14 pass, 0 fail** (regresi 3 bug).
 - `bash run-suite.sh` → **1648 pass, 0 fail, 102 file**.
 - `tsc --noEmit` → exit 0.
+
+## M57 — Bersihkan provider cascade: sisakan yang terverifikasi jalan (2026-11-14)
+
+**Hasil tes semua provider (2026-11-14):**
+
+| Provider | Status | Keterangan |
+|---|---|---|
+| xkiro | ✅ OK | `mistralai/mistral-large-2512` |
+| nvidia | ✅ OK | `poolside/laguna-xs-2.1` |
+| groq | ✅ OK | `qwen/qwen3.8-27b` |
+| xkiro-coder | ❌ 404 | model `qwen/qwen3-coder-plus:free` sudah tidak ada |
+| gemini | ❌ | API key kosong |
+| openrouter | ❌ 401 | "User not found" |
+| mistral | ❌ 429 | rate limit |
+
+**Keputusan:** `DEFAULT_PROVIDERS` dipangkas dari 7 → **3** (xkiro, nvidia, groq).
+Cascade sekarang: **xkiro → nvidia → groq**.
+
+**Catatan:** xkiro punya 69 model (Claude Opus 4.8, Sonnet 5.5, Grok 4.7, dll) tapi
+sebagian 403 (tidak ada akses). Yang bisa dipakai: `mistralai/mistral-large-2512`,
+`mistralai/codestral-2508`.
+
+**Hasil test agent end-to-end (SETELAH bersih):**
+```
+Task: "Baca kalkulator.js, lalu tambahkan fungsi kali(a,b)"
+Langkah 1: LIST_DIR .         ✅ XKIRO
+Langkah 2: READ kalkulator.js ✅ XKIRO
+Langkah 3: EDIT kalkulator.js ✅ XKIRO
+Langkah 4: READ (verifikasi)  ✅ XKIRO
+Langkah 5: DONE               ✅
+TANPA FALLBACK — XKIRO jalan dari awal sampai selesai.
+Agent memverifikasi sendiri hasilnya (baca ulang file).
+```
+
+**Verifikasi:** `bash run-suite.sh` → 1648 pass, 0 fail, 102 file. `tsc --noEmit` → exit 0.
