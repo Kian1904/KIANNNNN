@@ -1861,3 +1861,35 @@ punya kesempatan menang di sini.
 - `tests/test-go-shield.mjs` → 128 pass, 0 fail.
 - `bash run-suite.sh` → **1550 pass, 0 fail, 97 file**.
 - `tsc --noEmit` → exit 0.
+
+## M51 — Modul keempat (`safetyutil`) + pola titik impas (2026-11-14)
+
+**Modul keempat:** bagian CPU-bound `src/package-safety.js` → `core-go/internal/safetyutil`
+(Levenshtein + pencarian tetangga terdekat). Network I/O (fetch registry, apt-cache)
+**tetap di JS** — JS unggul di async I/O. Oracle `tests/test-go-safety.mjs`: 23 kasus identik.
+
+**FINDING — titik impas terukur:**
+| Skala | JS | Go | Rasio |
+|---|---|---|---|
+| 57 nama package (kasus nyata) | **0.515ms** | 1.456ms | **0.35x** (Go kalah 3×) |
+| 5000 kandidat (skala besar) | 100.8ms | **93.8ms** | **1.08x** (Go menang tipis) |
+
+**Kesimpulan:** Levenshtein di skala nyata (57 nama) → Go kalah. Di skala besar → Go
+menang tipis. **Tidak worth** untuk kasus pemakaian sekarang. Port dipertahankan
+sebagai referensi + oracle.
+
+**POLA YANG MULAI JELAS (setelah 4 modul):**
+> Bridge JS↔Go punya **biaya tetap** (JSON + IPC ≈ 1-8ms per panggilan). Go baru
+> menang kalau kerjaannya **jauh lebih besar** dari biaya itu. Untuk operasi yang
+> selesai dalam <1ms di JS, Go hampir selalu kalah.
+
+**Kandidat yang BENERAN cocok (belum ditemukan di repo ini):**
+- Operasi yang butuh **>10ms** di JS (parsing besar, indexing, kompilasi, kriptografi berat)
+- Payload kecil (biar JSON tidak mendominasi)
+- Contoh hipotetis: index codebase 10k file, hash tree besar, parse AST besar
+
+**Verifikasi (2026-11-14, Termux):**
+- `go test ./...` → ok (fsutil + diffutil + shieldutil + safetyutil).
+- `tests/test-go-safety.mjs` → 23 pass, 0 fail.
+- `bash run-suite.sh` → **1573 pass, 0 fail, 98 file**.
+- `tsc --noEmit` → exit 0.

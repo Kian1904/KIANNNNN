@@ -19,6 +19,7 @@ import (
 
 	"github.com/Kian1904/KIANNNNN/core-go/internal/diffutil"
 	"github.com/Kian1904/KIANNNNN/core-go/internal/fsutil"
+	"github.com/Kian1904/KIANNNNN/core-go/internal/safetyutil"
 	"github.com/Kian1904/KIANNNNN/core-go/internal/shieldutil"
 )
 
@@ -29,9 +30,13 @@ type request struct {
 	Limit      int    `json:"limit"`
 	OldContent string `json:"oldContent"`
 	NewContent string `json:"newContent"`
-	Text       string `json:"text"`
-	Source     string `json:"source"`
-	Origin     string `json:"origin"`
+	Text       string   `json:"text"`
+	Source     string   `json:"source"`
+	Origin     string   `json:"origin"`
+	A          string   `json:"a"`
+	B          string   `json:"b"`
+	Name       string   `json:"name"`
+	Candidates []string `json:"candidates"`
 }
 
 func main() {
@@ -77,6 +82,10 @@ func main() {
 			writeJSON(out, map[string]any{"ok": true, "result": shieldutil.SanitizeUntrusted(req.Text)})
 		case "wrapUntrusted":
 			writeJSON(out, map[string]any{"ok": true, "result": shieldutil.WrapUntrusted(req.Text, req.Source, req.Origin)})
+		case "levenshtein":
+			writeJSON(out, map[string]any{"ok": true, "result": safetyutil.LevenshteinDistance(req.A, req.B)})
+		case "findNearest":
+			writeJSON(out, map[string]any{"ok": true, "result": safetyutil.FindNearest(req.Name, req.Candidates)})
 		default:
 			writeJSON(out, map[string]any{"ok": false, "error": "unknown_op: " + req.Op})
 		}
